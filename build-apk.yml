@@ -1,0 +1,1134 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Create project files
+        run: |
+          cat > settings.gradle.kts <<'__PW_EOF__'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "PikminWalker"
+          include(":app")
+          __PW_EOF__
+          cat > build.gradle.kts <<'__PW_EOF__'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          __PW_EOF__
+          cat > gradle.properties <<'__PW_EOF__'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          __PW_EOF__
+          mkdir -p app
+          cat > app/build.gradle.kts <<'__PW_EOF__'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.example.pikminwalker"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.example.pikminwalker"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("com.google.android.material:material:1.12.0")
+              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+              // OpenStreetMap 地圖，不需要 Google Maps API key
+              implementation("org.osmdroid:osmdroid-android:6.1.18")
+          }
+          __PW_EOF__
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission
+                  android:name="android.permission.ACCESS_MOCK_LOCATION"
+                  tools:ignore="MockLocation,ProtectedPermissions" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+              <application
+                  android:allowBackup="true"
+                  android:label="@string/app_name"
+                  android:theme="@style/Theme.PikminWalker"
+                  android:usesCleartextTraffic="false">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".MockLocationService"
+                      android:exported="false"
+                      android:foregroundServiceType="location" />
+              </application>
+          </manifest>
+          __PW_EOF__
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/strings.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">皮克敏散步助手</string>
+          </resources>
+          __PW_EOF__
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/themes.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.PikminWalker" parent="Theme.Material3.Light.NoActionBar">
+                  <item name="colorPrimary">#2E7D32</item>
+                  <item name="colorSecondary">#F9A825</item>
+              </style>
+          </resources>
+          __PW_EOF__
+          mkdir -p app/src/main/res/layout
+          cat > app/src/main/res/layout/activity_main.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent">
+
+              <org.osmdroid.views.MapView
+                  android:id="@+id/map"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent" />
+
+              <TextView
+                  android:id="@+id/tvStatus"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="top"
+                  android:layout_margin="8dp"
+                  android:background="#E6FFFFFF"
+                  android:elevation="4dp"
+                  android:padding="10dp"
+                  android:text="尚未開始模擬"
+                  android:textColor="#222222"
+                  android:textSize="13sp" />
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="bottom"
+                  android:background="#F7FFFFFF"
+                  android:elevation="8dp"
+                  android:orientation="vertical"
+                  android:padding="10dp">
+
+                  <com.google.android.material.button.MaterialButtonToggleGroup
+                      android:id="@+id/toggleMode"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      app:checkedButton="@+id/btnModeJump"
+                      app:selectionRequired="true"
+                      app:singleSelection="true">
+
+                      <Button
+                          android:id="@+id/btnModeJump"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1"
+                          android:text="瞬移模式" />
+
+                      <Button
+                          android:id="@+id/btnModeRoute"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1"
+                          android:text="路線散步模式" />
+                  </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:gravity="center_vertical"
+                      android:orientation="horizontal">
+
+                      <EditText
+                          android:id="@+id/etCoord"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1"
+                          android:hint="輸入座標，例：22.9908, 120.2133"
+                          android:imeOptions="actionDone"
+                          android:inputType="text"
+                          android:textSize="14sp" />
+
+                      <Button
+                          android:id="@+id/btnGo"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="放上地圖" />
+                  </LinearLayout>
+
+                  <LinearLayout
+                      android:id="@+id/rowRoute"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:gravity="center_vertical"
+                      android:orientation="horizontal"
+                      android:visibility="gone">
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="速度 km/h：" />
+
+                      <EditText
+                          android:id="@+id/etSpeed"
+                          android:layout_width="64dp"
+                          android:layout_height="wrap_content"
+                          android:inputType="numberDecimal"
+                          android:text="5" />
+
+                      <CheckBox
+                          android:id="@+id/cbLoop"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="來回循環" />
+
+                      <Button
+                          android:id="@+id/btnUndo"
+                          style="?attr/borderlessButtonStyle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="復原" />
+
+                      <Button
+                          android:id="@+id/btnClear"
+                          style="?attr/borderlessButtonStyle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="清除" />
+                  </LinearLayout>
+
+                  <TextView
+                      android:id="@+id/tvHint"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:paddingVertical="4dp"
+                      android:text="點地圖選擇目的地"
+                      android:textColor="#555555"
+                      android:textSize="12sp" />
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="horizontal">
+
+                      <Button
+                          android:id="@+id/btnPrimary"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1.4"
+                          android:text="移動到這裡" />
+
+                      <Button
+                          android:id="@+id/btnPause"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="6dp"
+                          android:layout_weight="1"
+                          android:text="暫停" />
+
+                      <Button
+                          android:id="@+id/btnStop"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="6dp"
+                          android:layout_weight="1"
+                          android:text="停止模擬" />
+
+                      <Button
+                          android:id="@+id/btnLocate"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="6dp"
+                          android:text="◎" />
+                  </LinearLayout>
+              </LinearLayout>
+          </FrameLayout>
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/MockState.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import kotlinx.coroutines.flow.MutableStateFlow
+
+          /** Service 與畫面之間共用的狀態 */
+          object MockState {
+              data class Pos(val lat: Double, val lng: Double)
+
+              /** 目前送出的模擬位置（null = 沒在模擬） */
+              val current = MutableStateFlow<Pos?>(null)
+
+              /** 狀態說明文字 */
+              val status = MutableStateFlow("尚未開始模擬")
+
+              /** 是否正在走路線 */
+              val walking = MutableStateFlow(false)
+
+              /** 是否暫停 */
+              val paused = MutableStateFlow(false)
+
+              /** 路線剩餘距離（公尺） */
+              val remainingMeters = MutableStateFlow(0.0)
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/MockLocationService.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.location.Location
+          import android.location.LocationManager
+          import android.os.Build
+          import android.os.Handler
+          import android.os.IBinder
+          import android.os.Looper
+          import android.os.SystemClock
+          import androidx.core.app.NotificationCompat
+          import kotlin.math.atan2
+          import kotlin.math.cos
+          import kotlin.math.max
+          import kotlin.math.sin
+          import kotlin.random.Random
+
+          /**
+           * 前景服務：每秒把模擬位置送進 GPS / Network 測試提供者。
+           * 支援「瞬移」與「沿路線依速度移動」。
+           */
+          class MockLocationService : Service() {
+
+              companion object {
+                  const val ACTION_TELEPORT = "teleport"
+                  const val ACTION_ROUTE = "route"
+                  const val ACTION_PAUSE = "pause"
+                  const val ACTION_RESUME = "resume"
+                  const val ACTION_STOP = "stop"
+
+                  const val EXTRA_LAT = "lat"
+                  const val EXTRA_LNG = "lng"
+                  const val EXTRA_LATS = "lats"
+                  const val EXTRA_LNGS = "lngs"
+                  const val EXTRA_SPEED_KMH = "speed"
+                  const val EXTRA_LOOP = "loop"
+
+                  private const val CHANNEL_ID = "mock_location"
+                  private const val NOTIFY_ID = 1
+                  private const val TICK_MS = 1000L
+
+                  private val PROVIDERS = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+              }
+
+              private lateinit var lm: LocationManager
+              private val handler = Handler(Looper.getMainLooper())
+              private var providersReady = false
+
+              // 目前位置
+              private var lat = 0.0
+              private var lng = 0.0
+              private var bearing = 0f
+              private var speedMs = 0f
+              private var hasPosition = false
+
+              // 路線狀態
+              private var route: List<MockState.Pos> = emptyList()
+              private var segIndex = 0
+              private var segOffset = 0.0 // 在目前路段已走的公尺
+              private var targetSpeedMs = 5.0 / 3.6
+              private var loop = false
+              private var walking = false
+              private var paused = false
+
+              private val tick = object : Runnable {
+                  override fun run() {
+                      if (walking && !paused) step(TICK_MS / 1000.0)
+                      push()
+                      handler.postDelayed(this, TICK_MS)
+                  }
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                  createChannel()
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  startAsForeground()
+
+                  if (!providersReady) {
+                      providersReady = setupProviders()
+                      if (!providersReady) {
+                          MockState.status.value = "❌ 無法模擬位置：請到「開發人員選項 → 選取模擬位置應用程式」選本 App"
+                          stopSelf()
+                          return START_NOT_STICKY
+                      }
+                      handler.post(tick)
+                  }
+
+                  when (intent?.action) {
+                      ACTION_TELEPORT -> {
+                          walking = false
+                          paused = false
+                          lat = intent.getDoubleExtra(EXTRA_LAT, lat)
+                          lng = intent.getDoubleExtra(EXTRA_LNG, lng)
+                          speedMs = 0f
+                          hasPosition = true
+                          MockState.status.value = "已瞬移到 %.6f, %.6f".format(lat, lng)
+                          MockState.remainingMeters.value = 0.0
+                          push()
+                      }
+
+                      ACTION_ROUTE -> {
+                          val lats = intent.getDoubleArrayExtra(EXTRA_LATS) ?: return START_STICKY
+                          val lngs = intent.getDoubleArrayExtra(EXTRA_LNGS) ?: return START_STICKY
+                          if (lats.size < 2) return START_STICKY
+                          route = lats.indices.map { MockState.Pos(lats[it], lngs[it]) }
+                          targetSpeedMs = max(0.5, intent.getDoubleExtra(EXTRA_SPEED_KMH, 5.0)) / 3.6
+                          loop = intent.getBooleanExtra(EXTRA_LOOP, false)
+                          segIndex = 0
+                          segOffset = 0.0
+                          lat = route[0].lat
+                          lng = route[0].lng
+                          hasPosition = true
+                          walking = true
+                          paused = false
+                          MockState.status.value = "🚶 開始沿路線移動（%.1f km/h）".format(targetSpeedMs * 3.6)
+                          push()
+                      }
+
+                      ACTION_PAUSE -> {
+                          paused = true
+                          speedMs = 0f
+                          MockState.status.value = "⏸ 已暫停（位置停在原地）"
+                      }
+
+                      ACTION_RESUME -> {
+                          paused = false
+                          MockState.status.value = "🚶 繼續移動"
+                      }
+
+                      ACTION_STOP -> {
+                          stopSelf()
+                          return START_NOT_STICKY
+                      }
+                  }
+                  MockState.walking.value = walking
+                  MockState.paused.value = paused
+                  updateNotification()
+                  return START_STICKY
+              }
+
+              /** 沿路線前進 dt 秒 */
+              private fun step(dt: Double) {
+                  // 速度加入 ±8% 的小變化，看起來比較像真人走路
+                  val v = targetSpeedMs * (1.0 + Random.nextDouble(-0.08, 0.08))
+                  var remaining = v * dt
+
+                  while (remaining > 0) {
+                      if (segIndex >= route.size - 1) {
+                          if (loop) {
+                              route = route.reversed() // 走到終點就原路折返
+                              segIndex = 0
+                              segOffset = 0.0
+                          } else {
+                              finishRoute()
+                              return
+                          }
+                      }
+                      val a = route[segIndex]
+                      val b = route[segIndex + 1]
+                      val segLen = distance(a, b)
+                      val left = segLen - segOffset
+                      if (remaining < left) {
+                          segOffset += remaining
+                          remaining = 0.0
+                      } else {
+                          remaining -= left
+                          segIndex++
+                          segOffset = 0.0
+                      }
+                  }
+
+                  if (segIndex >= route.size - 1) {
+                      if (!loop) { finishRoute(); return }
+                      lat = route.last().lat
+                      lng = route.last().lng
+                  } else {
+                      val a = route[segIndex]
+                      val b = route[segIndex + 1]
+                      val segLen = distance(a, b)
+                      val f = if (segLen > 0) segOffset / segLen else 1.0
+                      lat = a.lat + (b.lat - a.lat) * f
+                      lng = a.lng + (b.lng - a.lng) * f
+                      bearing = bearing(a, b)
+                  }
+                  speedMs = v.toFloat()
+                  MockState.remainingMeters.value = remainingDistance()
+              }
+
+              private fun finishRoute() {
+                  val end = route.last()
+                  lat = end.lat
+                  lng = end.lng
+                  walking = false
+                  speedMs = 0f
+                  MockState.walking.value = false
+                  MockState.remainingMeters.value = 0.0
+                  MockState.status.value = "🏁 已抵達終點，停留在終點位置"
+                  updateNotification()
+              }
+
+              private fun remainingDistance(): Double {
+                  if (segIndex >= route.size - 1) return 0.0
+                  var d = distance(route[segIndex], route[segIndex + 1]) - segOffset
+                  for (i in segIndex + 1 until route.size - 1) d += distance(route[i], route[i + 1])
+                  return max(0.0, d)
+              }
+
+              /** 把目前位置送給系統 */
+              private fun push() {
+                  if (!hasPosition || !providersReady) return
+                  val now = System.currentTimeMillis()
+                  val elapsed = SystemClock.elapsedRealtimeNanos()
+                  for (p in PROVIDERS) {
+                      val loc = Location(p).apply {
+                          latitude = lat
+                          longitude = lng
+                          altitude = 20.0
+                          accuracy = 3f + Random.nextFloat() * 2f
+                          time = now
+                          elapsedRealtimeNanos = elapsed
+                          bearing = this@MockLocationService.bearing
+                          speed = speedMs
+                          bearingAccuracyDegrees = 10f
+                          speedAccuracyMetersPerSecond = 0.5f
+                          verticalAccuracyMeters = 5f
+                      }
+                      try {
+                          lm.setTestProviderLocation(p, loc)
+                      } catch (_: Exception) {
+                      }
+                  }
+                  MockState.current.value = MockState.Pos(lat, lng)
+              }
+
+              private fun setupProviders(): Boolean {
+                  for (p in PROVIDERS) {
+                      try {
+                          try { lm.removeTestProvider(p) } catch (_: Exception) {}
+                          @Suppress("DEPRECATION", "WrongConstant")
+                          lm.addTestProvider(
+                              p,
+                              false, false, false, false,
+                              true, true, true,
+                              1, // POWER_USAGE_LOW
+                              1  // ACCURACY_FINE
+                          )
+                          lm.setTestProviderEnabled(p, true)
+                      } catch (e: SecurityException) {
+                          return false
+                      } catch (_: Exception) {
+                          // 某些手機沒有 network provider，略過即可
+                      }
+                  }
+                  return true
+              }
+
+              override fun onDestroy() {
+                  handler.removeCallbacksAndMessages(null)
+                  if (providersReady) {
+                      for (p in PROVIDERS) {
+                          try { lm.setTestProviderEnabled(p, false) } catch (_: Exception) {}
+                          try { lm.removeTestProvider(p) } catch (_: Exception) {}
+                      }
+                  }
+                  MockState.current.value = null
+                  MockState.walking.value = false
+                  MockState.paused.value = false
+                  MockState.remainingMeters.value = 0.0
+                  if (providersReady) MockState.status.value = "已停止模擬，恢復真實 GPS"
+                  super.onDestroy()
+              }
+
+              // ---------- 通知 ----------
+
+              private fun createChannel() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      val ch = NotificationChannel(CHANNEL_ID, "模擬位置", NotificationManager.IMPORTANCE_LOW)
+                      getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
+                  }
+              }
+
+              private fun buildNotification(): Notification {
+                  val open = PendingIntent.getActivity(
+                      this, 0, Intent(this, MainActivity::class.java),
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+                  val stop = PendingIntent.getService(
+                      this, 1, Intent(this, MockLocationService::class.java).setAction(ACTION_STOP),
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+                  val text = when {
+                      walking && paused -> "路線移動已暫停"
+                      walking -> "沿路線移動中"
+                      else -> "模擬位置中"
+                  }
+                  return NotificationCompat.Builder(this, CHANNEL_ID)
+                      .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                      .setContentTitle("皮克敏散步助手")
+                      .setContentText(text)
+                      .setOngoing(true)
+                      .setContentIntent(open)
+                      .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止模擬", stop)
+                      .build()
+              }
+
+              private fun startAsForeground() {
+                  val n = buildNotification()
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      startForeground(NOTIFY_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                  } else {
+                      startForeground(NOTIFY_ID, n)
+                  }
+              }
+
+              private fun updateNotification() {
+                  getSystemService(NotificationManager::class.java).notify(NOTIFY_ID, buildNotification())
+              }
+
+              // ---------- 幾何 ----------
+
+              private fun distance(a: MockState.Pos, b: MockState.Pos): Double {
+                  val r = FloatArray(1)
+                  Location.distanceBetween(a.lat, a.lng, b.lat, b.lng, r)
+                  return r[0].toDouble()
+              }
+
+              private fun bearing(a: MockState.Pos, b: MockState.Pos): Float {
+                  val p1 = Math.toRadians(a.lat)
+                  val p2 = Math.toRadians(b.lat)
+                  val dl = Math.toRadians(b.lng - a.lng)
+                  val y = sin(dl) * cos(p2)
+                  val x = cos(p1) * sin(p2) - sin(p1) * cos(p2) * cos(dl)
+                  return ((Math.toDegrees(atan2(y, x)) + 360) % 360).toFloat()
+              }
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/MainActivity.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.Manifest
+          import android.app.AppOpsManager
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.graphics.Bitmap
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
+          import android.graphics.drawable.BitmapDrawable
+          import android.location.Location
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.Process
+          import android.provider.Settings
+          import android.view.View
+          import android.widget.Button
+          import android.widget.CheckBox
+          import android.widget.EditText
+          import android.widget.TextView
+          import android.widget.Toast
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AlertDialog
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.content.ContextCompat
+          import androidx.lifecycle.Lifecycle
+          import androidx.lifecycle.lifecycleScope
+          import androidx.lifecycle.repeatOnLifecycle
+          import com.google.android.material.button.MaterialButtonToggleGroup
+          import kotlinx.coroutines.flow.combine
+          import kotlinx.coroutines.launch
+          import org.osmdroid.config.Configuration
+          import org.osmdroid.events.MapEventsReceiver
+          import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+          import org.osmdroid.util.GeoPoint
+          import org.osmdroid.views.MapView
+          import org.osmdroid.views.overlay.MapEventsOverlay
+          import org.osmdroid.views.overlay.Marker
+          import org.osmdroid.views.overlay.Polyline
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var map: MapView
+              private lateinit var tvStatus: TextView
+              private lateinit var tvHint: TextView
+              private lateinit var etCoord: EditText
+              private lateinit var etSpeed: EditText
+              private lateinit var cbLoop: CheckBox
+              private lateinit var btnPrimary: Button
+              private lateinit var btnPause: Button
+              private lateinit var rowRoute: View
+
+              private var routeMode = false
+              private var jumpTarget: GeoPoint? = null
+              private var jumpMarker: Marker? = null
+              private var meMarker: Marker? = null
+              private val waypoints = mutableListOf<GeoPoint>()
+              private val waypointMarkers = mutableListOf<Marker>()
+              private lateinit var routeLine: Polyline
+              private var firstFix = true
+
+              private val prefs by lazy { getSharedPreferences("walker", Context.MODE_PRIVATE) }
+
+              private val permLauncher =
+                  registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  Configuration.getInstance().load(this, prefs)
+                  Configuration.getInstance().userAgentValue = packageName
+                  setContentView(R.layout.activity_main)
+
+                  map = findViewById(R.id.map)
+                  tvStatus = findViewById(R.id.tvStatus)
+                  tvHint = findViewById(R.id.tvHint)
+                  etCoord = findViewById(R.id.etCoord)
+                  etSpeed = findViewById(R.id.etSpeed)
+                  cbLoop = findViewById(R.id.cbLoop)
+                  btnPrimary = findViewById(R.id.btnPrimary)
+                  btnPause = findViewById(R.id.btnPause)
+                  rowRoute = findViewById(R.id.rowRoute)
+
+                  setupMap()
+                  setupButtons()
+                  requestPermissions()
+                  observeState()
+              }
+
+              // ---------------- 地圖 ----------------
+
+              private fun setupMap() {
+                  map.setTileSource(TileSourceFactory.MAPNIK)
+                  map.setMultiTouchControls(true)
+                  map.zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
+                  map.controller.setZoom(17.0)
+                  // 預設：上次位置，沒有就台南火車站
+                  val lat = prefs.getFloat("last_lat", 22.9971f).toDouble()
+                  val lng = prefs.getFloat("last_lng", 120.2128f).toDouble()
+                  map.controller.setCenter(GeoPoint(lat, lng))
+
+                  routeLine = Polyline(map).apply {
+                      outlinePaint.color = Color.parseColor("#2E7D32")
+                      outlinePaint.strokeWidth = 10f
+                  }
+                  map.overlays.add(routeLine)
+
+                  val receiver = object : MapEventsReceiver {
+                      override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
+                          onMapTap(p); return true
+                      }
+                      override fun longPressHelper(p: GeoPoint): Boolean = false
+                  }
+                  map.overlays.add(0, MapEventsOverlay(receiver))
+              }
+
+              private fun onMapTap(p: GeoPoint) {
+                  if (routeMode) addWaypoint(p) else setJumpTarget(p)
+              }
+
+              private fun setJumpTarget(p: GeoPoint) {
+                  jumpTarget = p
+                  if (jumpMarker == null) {
+                      jumpMarker = Marker(map).apply {
+                          icon = labelIcon("★", Color.parseColor("#F9A825"))
+                          setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                          isDraggable = true
+                          setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                              override fun onMarkerDrag(m: Marker) {}
+                              override fun onMarkerDragStart(m: Marker) {}
+                              override fun onMarkerDragEnd(m: Marker) { jumpTarget = m.position; updateHint() }
+                          })
+                      }
+                      map.overlays.add(jumpMarker)
+                  }
+                  jumpMarker!!.position = p
+                  updateHint()
+                  map.invalidate()
+              }
+
+              private fun addWaypoint(p: GeoPoint) {
+                  waypoints.add(p)
+                  val idx = waypoints.size - 1
+                  val m = Marker(map).apply {
+                      position = p
+                      icon = labelIcon(letter(idx), Color.parseColor("#1565C0"))
+                      setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                      isDraggable = true
+                      setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                          override fun onMarkerDrag(m: Marker) {}
+                          override fun onMarkerDragStart(m: Marker) {}
+                          override fun onMarkerDragEnd(m: Marker) {
+                              val i = waypointMarkers.indexOf(m)
+                              if (i >= 0) { waypoints[i] = m.position; redrawRoute() }
+                          }
+                      })
+                  }
+                  waypointMarkers.add(m)
+                  map.overlays.add(m)
+                  redrawRoute()
+              }
+
+              private fun redrawRoute() {
+                  routeLine.setPoints(waypoints.toList())
+                  updateHint()
+                  map.invalidate()
+              }
+
+              private fun clearRoute() {
+                  waypointMarkers.forEach { map.overlays.remove(it) }
+                  waypointMarkers.clear()
+                  waypoints.clear()
+                  redrawRoute()
+              }
+
+              private fun undoWaypoint() {
+                  if (waypoints.isEmpty()) return
+                  map.overlays.remove(waypointMarkers.removeAt(waypointMarkers.size - 1))
+                  waypoints.removeAt(waypoints.size - 1)
+                  redrawRoute()
+              }
+
+              // ---------------- 按鈕 ----------------
+
+              private fun setupButtons() {
+                  findViewById<MaterialButtonToggleGroup>(R.id.toggleMode)
+                      .addOnButtonCheckedListener { _, id, checked ->
+                          if (!checked) return@addOnButtonCheckedListener
+                          routeMode = id == R.id.btnModeRoute
+                          rowRoute.visibility = if (routeMode) View.VISIBLE else View.GONE
+                          btnPrimary.text = if (routeMode) "開始走" else "移動到這裡"
+                          jumpMarker?.setVisible(!routeMode)
+                          updateHint()
+                          map.invalidate()
+                      }
+
+                  btnPrimary.setOnClickListener { if (routeMode) startRoute() else teleport() }
+
+                  btnPause.setOnClickListener {
+                      if (!MockState.walking.value) {
+                          toast("目前沒有在走路線"); return@setOnClickListener
+                      }
+                      sendToService(if (MockState.paused.value) MockLocationService.ACTION_RESUME
+                                    else MockLocationService.ACTION_PAUSE)
+                  }
+
+                  findViewById<Button>(R.id.btnStop).setOnClickListener {
+                      if (MockState.current.value != null) sendToService(MockLocationService.ACTION_STOP)
+                  }
+
+                  findViewById<Button>(R.id.btnLocate).setOnClickListener {
+                      MockState.current.value?.let { map.controller.animateTo(GeoPoint(it.lat, it.lng)) }
+                          ?: toast("還沒開始模擬")
+                  }
+
+                  findViewById<Button>(R.id.btnGo).setOnClickListener { goToTypedCoord() }
+                  findViewById<Button>(R.id.btnUndo).setOnClickListener { undoWaypoint() }
+                  findViewById<Button>(R.id.btnClear).setOnClickListener { clearRoute() }
+              }
+
+              /** 解析「22.99, 120.21」這類座標（可直接貼 Google 地圖複製的座標） */
+              private fun goToTypedCoord() {
+                  val parts = etCoord.text.toString()
+                      .replace("(", "").replace(")", "")
+                      .split(",", " ", "，").filter { it.isNotBlank() }
+                  val lat = parts.getOrNull(0)?.toDoubleOrNull()
+                  val lng = parts.getOrNull(1)?.toDoubleOrNull()
+                  if (lat == null || lng == null || lat !in -90.0..90.0 || lng !in -180.0..180.0) {
+                      toast("座標格式錯誤，請輸入「緯度, 經度」"); return
+                  }
+                  val p = GeoPoint(lat, lng)
+                  map.controller.animateTo(p)
+                  onMapTap(p)
+              }
+
+              private fun teleport() {
+                  val t = jumpTarget ?: run { toast("請先在地圖上點選目的地"); return }
+                  if (!checkReady()) return
+                  val cur = MockState.current.value
+                  if (cur != null) {
+                      val d = dist(cur.lat, cur.lng, t.latitude, t.longitude)
+                      if (d > 2000) toast("距離 %.1f km，大距離瞬移建議等一段時間再操作遊戲".format(d / 1000))
+                  }
+                  startService(Intent(this, MockLocationService::class.java).apply {
+                      action = MockLocationService.ACTION_TELEPORT
+                      putExtra(MockLocationService.EXTRA_LAT, t.latitude)
+                      putExtra(MockLocationService.EXTRA_LNG, t.longitude)
+                  }, foreground = true)
+              }
+
+              private fun startRoute() {
+                  if (waypoints.size < 2) { toast("請至少在地圖上點兩個點（A → B）"); return }
+                  val speed = etSpeed.text.toString().toDoubleOrNull()
+                  if (speed == null || speed <= 0) { toast("請輸入速度"); return }
+                  if (speed > 10) toast("提醒：皮克敏一般認為時速超過約 10 km/h 步數不會計算")
+                  if (!checkReady()) return
+                  startService(Intent(this, MockLocationService::class.java).apply {
+                      action = MockLocationService.ACTION_ROUTE
+                      putExtra(MockLocationService.EXTRA_LATS, waypoints.map { it.latitude }.toDoubleArray())
+                      putExtra(MockLocationService.EXTRA_LNGS, waypoints.map { it.longitude }.toDoubleArray())
+                      putExtra(MockLocationService.EXTRA_SPEED_KMH, speed)
+                      putExtra(MockLocationService.EXTRA_LOOP, cbLoop.isChecked)
+                  }, foreground = true)
+              }
+
+              private fun sendToService(action: String) {
+                  startService(Intent(this, MockLocationService::class.java).setAction(action), foreground = false)
+              }
+
+              private fun startService(i: Intent, foreground: Boolean) {
+                  if (foreground) ContextCompat.startForegroundService(this, i) else startService(i)
+              }
+
+              // ---------------- 狀態顯示 ----------------
+
+              private fun observeState() {
+                  lifecycleScope.launch {
+                      repeatOnLifecycle(Lifecycle.State.STARTED) {
+                          launch {
+                              MockState.current.collect { pos ->
+                                  if (pos == null) {
+                                      meMarker?.let { map.overlays.remove(it) }
+                                      meMarker = null
+                                      firstFix = true
+                                  } else {
+                                      val gp = GeoPoint(pos.lat, pos.lng)
+                                      if (meMarker == null) {
+                                          meMarker = Marker(map).apply {
+                                              icon = labelIcon("我", Color.parseColor("#C62828"))
+                                              setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                                              infoWindow = null
+                                          }
+                                          map.overlays.add(meMarker)
+                                      }
+                                      meMarker!!.position = gp
+                                      if (firstFix) { map.controller.animateTo(gp); firstFix = false }
+                                      prefs.edit().putFloat("last_lat", pos.lat.toFloat())
+                                          .putFloat("last_lng", pos.lng.toFloat()).apply()
+                                  }
+                                  map.invalidate()
+                              }
+                          }
+                          launch {
+                              combine(MockState.status, MockState.current, MockState.remainingMeters,
+                                  MockState.walking) { s, c, r, w ->
+                                  buildString {
+                                      append(s)
+                                      if (c != null) append("\n目前：%.6f, %.6f".format(c.lat, c.lng))
+                                      if (w && r > 0) append("\n剩餘 %.0f 公尺".format(r))
+                                  }
+                              }.collect { tvStatus.text = it }
+                          }
+                          launch {
+                              MockState.paused.collect { btnPause.text = if (it) "繼續" else "暫停" }
+                          }
+                      }
+                  }
+              }
+
+              private fun updateHint() {
+                  tvHint.text = if (routeMode) {
+                      if (waypoints.size < 2) {
+                          "點地圖依序加入路線點（A、B、C、D…），可拖曳點調整位置"
+                      } else {
+                          var total = 0.0
+                          for (i in 0 until waypoints.size - 1) {
+                              total += dist(waypoints[i].latitude, waypoints[i].longitude,
+                                  waypoints[i + 1].latitude, waypoints[i + 1].longitude)
+                          }
+                          val speed = etSpeed.text.toString().toDoubleOrNull() ?: 5.0
+                          val min = total / 1000 / speed * 60
+                          "共 %d 點，全長 %.2f km，約 %.0f 分鐘（%.1f km/h）".format(waypoints.size, total / 1000, min, speed)
+                      }
+                  } else {
+                      jumpTarget?.let { "目的地：%.6f, %.6f".format(it.latitude, it.longitude) }
+                          ?: "點地圖選擇目的地，再按「移動到這裡」"
+                  }
+              }
+
+              // ---------------- 權限與檢查 ----------------
+
+              private fun requestPermissions() {
+                  val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION,
+                      Manifest.permission.ACCESS_COARSE_LOCATION)
+                  if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
+                  val need = perms.filter {
+                      ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+                  }
+                  if (need.isNotEmpty()) permLauncher.launch(need.toTypedArray())
+              }
+
+              private fun checkReady(): Boolean {
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                      != PackageManager.PERMISSION_GRANTED) {
+                      toast("請先允許位置權限"); requestPermissions(); return false
+                  }
+                  if (!isMockAppSelected()) {
+                      AlertDialog.Builder(this)
+                          .setTitle("需要設定模擬位置")
+                          .setMessage("請到「設定 → 開發人員選項 → 選取模擬位置應用程式」，選擇「皮克敏散步助手」。\n\n" +
+                                  "（若沒有開發人員選項：到「關於手機」連點「版本號碼」7 次開啟）")
+                          .setPositiveButton("前往設定") { _, _ ->
+                              try {
+                                  startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+                              } catch (_: Exception) {
+                                  startActivity(Intent(Settings.ACTION_SETTINGS))
+                              }
+                          }
+                          .setNegativeButton("取消", null)
+                          .show()
+                      return false
+                  }
+                  return true
+              }
+
+              private fun isMockAppSelected(): Boolean = try {
+                  val ops = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+                  val mode = if (Build.VERSION.SDK_INT >= 29) {
+                      ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), packageName)
+                  } else {
+                      @Suppress("DEPRECATION")
+                      ops.checkOpNoThrow(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), packageName)
+                  }
+                  mode == AppOpsManager.MODE_ALLOWED
+              } catch (_: Exception) {
+                  false
+              }
+
+              // ---------------- 小工具 ----------------
+
+              private fun letter(i: Int): String =
+                  if (i < 26) ('A' + i).toString() else "${i + 1}"
+
+              private fun labelIcon(text: String, color: Int): BitmapDrawable {
+                  val size = (resources.displayMetrics.density * 30).toInt()
+                  val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                  val c = Canvas(bmp)
+                  val p = Paint(Paint.ANTI_ALIAS_FLAG)
+                  p.color = Color.WHITE
+                  c.drawCircle(size / 2f, size / 2f, size / 2f, p)
+                  p.color = color
+                  c.drawCircle(size / 2f, size / 2f, size / 2f - size * 0.08f, p)
+                  p.color = Color.WHITE
+                  p.textSize = size * 0.5f
+                  p.textAlign = Paint.Align.CENTER
+                  p.isFakeBoldText = true
+                  val y = size / 2f - (p.descent() + p.ascent()) / 2
+                  c.drawText(text, size / 2f, y, p)
+                  return BitmapDrawable(resources, bmp)
+              }
+
+              private fun dist(a: Double, b: Double, c: Double, d: Double): Double {
+                  val r = FloatArray(1)
+                  Location.distanceBetween(a, b, c, d, r)
+                  return r[0].toDouble()
+              }
+
+              private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+
+              override fun onResume() { super.onResume(); map.onResume() }
+              override fun onPause() { super.onPause(); map.onPause() }
+          }
+          __PW_EOF__
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PikminWalker-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
