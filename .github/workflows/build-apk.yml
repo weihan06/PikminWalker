@@ -300,6 +300,7 @@ jobs:
                           android:layout_height="wrap_content"
                           android:layout_marginStart="6dp"
                           android:layout_weight="1"
+                          android:maxLines="1"
                           android:text="暫停" />
 
                       <Button
@@ -309,7 +310,8 @@ jobs:
                           android:layout_height="wrap_content"
                           android:layout_marginStart="6dp"
                           android:layout_weight="1"
-                          android:text="停止模擬" />
+                          android:maxLines="1"
+                          android:text="停止" />
 
                       <Button
                           android:id="@+id/btnLocate"
@@ -736,7 +738,7 @@ jobs:
           import kotlinx.coroutines.launch
           import org.osmdroid.config.Configuration
           import org.osmdroid.events.MapEventsReceiver
-          import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+          import org.osmdroid.tileprovider.tilesource.XYTileSource
           import org.osmdroid.util.GeoPoint
           import org.osmdroid.views.MapView
           import org.osmdroid.views.overlay.MapEventsOverlay
@@ -772,7 +774,7 @@ jobs:
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   Configuration.getInstance().load(this, prefs)
-                  Configuration.getInstance().userAgentValue = packageName
+                  Configuration.getInstance().userAgentValue = "PikminWalker/1.0 (personal use)"
                   setContentView(R.layout.activity_main)
 
                   map = findViewById(R.id.map)
@@ -794,7 +796,19 @@ jobs:
               // ---------------- 地圖 ----------------
 
               private fun setupMap() {
-                  map.setTileSource(TileSourceFactory.MAPNIK)
+                  // OSM 官方圖磚伺服器會封鎖一般 App，改用 CARTO 的圖磚（同樣是 OpenStreetMap 資料）
+                  map.setTileSource(
+                      XYTileSource(
+                          "CartoVoyager", 0, 20, 256, ".png",
+                          arrayOf(
+                              "https://a.basemaps.cartocdn.com/rastertiles/voyager/",
+                              "https://b.basemaps.cartocdn.com/rastertiles/voyager/",
+                              "https://c.basemaps.cartocdn.com/rastertiles/voyager/",
+                              "https://d.basemaps.cartocdn.com/rastertiles/voyager/"
+                          ),
+                          "© OpenStreetMap contributors © CARTO"
+                      )
+                  )
                   map.setMultiTouchControls(true)
                   map.zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
                   map.controller.setZoom(17.0)
