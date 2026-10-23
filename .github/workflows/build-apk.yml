@@ -229,6 +229,15 @@ jobs:
                           android:layout_width="wrap_content"
                           android:layout_height="wrap_content"
                           android:text="放上地圖" />
+
+                      <Button
+                          android:id="@+id/btnLayer"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="4dp"
+                          android:maxLines="1"
+                          android:text="街道圖" />
                   </LinearLayout>
 
                   <LinearLayout
@@ -738,7 +747,9 @@ jobs:
           import kotlinx.coroutines.launch
           import org.osmdroid.config.Configuration
           import org.osmdroid.events.MapEventsReceiver
-          import org.osmdroid.tileprovider.tilesource.XYTileSource
+          import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+          import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+          import org.osmdroid.util.MapTileIndex
           import org.osmdroid.util.GeoPoint
           import org.osmdroid.views.MapView
           import org.osmdroid.views.overlay.MapEventsOverlay
@@ -765,6 +776,34 @@ jobs:
               private val waypointMarkers = mutableListOf<Marker>()
               private lateinit var routeLine: Polyline
               private var firstFix = true
+              private lateinit var btnLayer: Button
+
+              /** 可切換的地圖來源（都不需要 API key） */
+              private val tileSources by lazy {
+                  listOf(
+                      "街道圖" to EsriTileSource("EsriStreet", "World_Street_Map"),
+                      "衛星圖" to EsriTileSource("EsriImagery", "World_Imagery"),
+                      "OSM" to TileSourceFactory.MAPNIK
+                  )
+              }
+              private var tileIdx = 0
+
+              /** Esri 圖磚網址是 z/y/x 順序 */
+              private class EsriTileSource(name: String, service: String) : OnlineTileSourceBase(
+                  name, 0, 19, 256, "",
+                  arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/$service/MapServer/tile/"),
+                  "Esri"
+              ) {
+                  override fun getTileURLString(pMapTileIndex: Long): String =
+                      baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" +
+                          MapTileIndex.getY(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex)
+              }
+
+              private fun applyTiles() {
+                  map.setTileSource(tileSources[tileIdx].second)
+                  btnLayer.text = tileSources[tileIdx].first
+                  map.invalidate()
+              }
 
               private val prefs by lazy { getSharedPreferences("walker", Context.MODE_PRIVATE) }
 
@@ -774,7 +813,7 @@ jobs:
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   Configuration.getInstance().load(this, prefs)
-                  Configuration.getInstance().userAgentValue = "PikminWalker/1.0 (personal use)"
+                  Configuration.getInstance().userAgentValue = "PikminWalker/1.0 (+https://github.com/weihan06/PikminWalker)"
                   setContentView(R.layout.activity_main)
 
                   map = findViewById(R.id.map)
@@ -786,6 +825,7 @@ jobs:
                   btnPrimary = findViewById(R.id.btnPrimary)
                   btnPause = findViewById(R.id.btnPause)
                   rowRoute = findViewById(R.id.rowRoute)
+                  btnLayer = findViewById(R.id.btnLayer)
 
                   setupMap()
                   setupButtons()
@@ -796,19 +836,8 @@ jobs:
               // ---------------- 地圖 ----------------
 
               private fun setupMap() {
-                  // OSM 官方圖磚伺服器會封鎖一般 App，改用 CARTO 的圖磚（同樣是 OpenStreetMap 資料）
-                  map.setTileSource(
-                      XYTileSource(
-                          "CartoVoyager", 0, 20, 256, ".png",
-                          arrayOf(
-                              "https://a.basemaps.cartocdn.com/rastertiles/voyager/",
-                              "https://b.basemaps.cartocdn.com/rastertiles/voyager/",
-                              "https://c.basemaps.cartocdn.com/rastertiles/voyager/",
-                              "https://d.basemaps.cartocdn.com/rastertiles/voyager/"
-                          ),
-                          "© OpenStreetMap contributors © CARTO"
-                      )
-                  )
+                  tileIdx = prefs.getInt("tile_idx", 0).coerceIn(0, tileSources.size - 1)
+                  applyTiles()
                   map.setMultiTouchControls(true)
                   map.zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
                   map.controller.setZoom(17.0)
@@ -932,6 +961,11 @@ jobs:
                   }
 
                   findViewById<Button>(R.id.btnGo).setOnClickListener { goToTypedCoord() }
+                  btnLayer.setOnClickListener {
+                      tileIdx = (tileIdx + 1) % tileSources.size
+                      prefs.edit().putInt("tile_idx", tileIdx).apply()
+                      applyTiles()
+                  }
                   findViewById<Button>(R.id.btnUndo).setOnClickListener { undoWaypoint() }
                   findViewById<Button>(R.id.btnClear).setOnClickListener { clearRoute() }
               }
