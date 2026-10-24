@@ -62,13 +62,29 @@ jobs:
                   applicationId = "com.example.pikminwalker"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
+                  // GitHub Actions 每次編譯自動遞增版本號
+                  val runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+                  versionCode = runNumber
+                  versionName = "1.$runNumber"
+              }
+
+              // 固定的簽章金鑰：每次編譯都用同一把，才能直接覆蓋更新
+              signingConfigs {
+                  create("fixed") {
+                      storeFile = file("release.jks")
+                      storePassword = "pikminwalker"
+                      keyAlias = "pikminwalker"
+                      keyPassword = "pikminwalker"
+                  }
               }
 
               buildTypes {
+                  debug {
+                      signingConfig = signingConfigs.getByName("fixed")
+                  }
                   release {
                       isMinifyEnabled = false
+                      signingConfig = signingConfigs.getByName("fixed")
                   }
               }
               compileOptions {
@@ -109,6 +125,8 @@ jobs:
 
               <application
                   android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round"
                   android:label="@string/app_name"
                   android:theme="@style/Theme.PikminWalker"
                   android:usesCleartextTraffic="false">
@@ -122,6 +140,11 @@ jobs:
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
+
+                  <activity
+                      android:name=".SetupActivity"
+                      android:exported="false"
+                      android:label="設定導覽" />
 
                   <service
                       android:name=".MockLocationService"
@@ -333,6 +356,212 @@ jobs:
               </LinearLayout>
           </FrameLayout>
           __PW_EOF__
+          mkdir -p app/src/main/res/layout
+          cat > app/src/main/res/layout/activity_setup.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#37474F"
+              android:orientation="vertical"
+              android:padding="24dp">
+
+              <TextView
+                  android:id="@+id/tvDots"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="24dp"
+                  android:gravity="center"
+                  android:letterSpacing="0.3"
+                  android:textColor="#FFFFFF"
+                  android:textSize="18sp" />
+
+              <TextView
+                  android:id="@+id/tvStepNum"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="16dp"
+                  android:gravity="center"
+                  android:textColor="#FFFFFF"
+                  android:textSize="40sp"
+                  android:textStyle="bold" />
+
+              <TextView
+                  android:id="@+id/tvTitle"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="8dp"
+                  android:gravity="center"
+                  android:textColor="#C5E1A5"
+                  android:textSize="22sp"
+                  android:textStyle="bold" />
+
+              <TextView
+                  android:id="@+id/tvState"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center_horizontal"
+                  android:layout_marginTop="12dp"
+                  android:paddingHorizontal="14dp"
+                  android:paddingVertical="4dp"
+                  android:textSize="15sp"
+                  android:textStyle="bold" />
+
+              <ScrollView
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_marginTop="20dp"
+                  android:layout_weight="1">
+
+                  <TextView
+                      android:id="@+id/tvBody"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:lineSpacingMultiplier="1.35"
+                      android:textColor="#FFFFFF"
+                      android:textSize="18sp" />
+              </ScrollView>
+
+              <Button
+                  android:id="@+id/btnAction"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center_horizontal"
+                  android:layout_marginBottom="16dp"
+                  android:backgroundTint="#2E7D32"
+                  android:minWidth="200dp"
+                  android:paddingVertical="12dp"
+                  android:textSize="20sp" />
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal">
+
+                  <Button
+                      android:id="@+id/btnBack"
+                      style="?attr/borderlessButtonStyle"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="上一步"
+                      android:textColor="#FFFFFF"
+                      android:textSize="17sp" />
+
+                  <View
+                      android:layout_width="0dp"
+                      android:layout_height="1dp"
+                      android:layout_weight="1" />
+
+                  <Button
+                      android:id="@+id/btnNext"
+                      style="?attr/borderlessButtonStyle"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:textColor="#FFFFFF"
+                      android:textSize="17sp" />
+              </LinearLayout>
+          </LinearLayout>
+          __PW_EOF__
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_launcher_background.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#388E3C"
+                  android:pathData="M0,0 L108,0 L108,108 L0,108 Z" />
+              <path
+                  android:fillColor="#2E7D32"
+                  android:pathData="M0,74 C24,66 44,80 66,74 C84,69 96,72 108,70 L108,108 L0,108 Z" />
+          </vector>
+          __PW_EOF__
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <group
+                  android:pivotX="54"
+                  android:pivotY="58"
+                  android:scaleX="1.08"
+                  android:scaleY="1.08"
+                  android:translateY="-3">
+                  <!-- 圖釘陰影 -->
+                  <group
+                      android:translateX="1.5"
+                      android:translateY="2">
+                      <path
+                          android:fillAlpha="0.35"
+                          android:fillColor="#1B5E20"
+                          android:pathData="M54,84 C48,74 37,65 37,52 A17,17 0 1,1 71,52 C71,65 60,74 54,84 Z" />
+                  </group>
+                  <!-- 白色定位圖釘 -->
+                  <path
+                      android:fillColor="#FFFFFF"
+                      android:pathData="M54,84 C48,74 37,65 37,52 A17,17 0 1,1 71,52 C71,65 60,74 54,84 Z" />
+                  <!-- 嫩芽 -->
+                  <path
+                      android:pathData="M54,61 L54,47"
+                      android:strokeWidth="2.6"
+                      android:strokeColor="#2E7D32"
+                      android:strokeLineCap="round" />
+                  <path
+                      android:fillColor="#43A047"
+                      android:pathData="M54,52 C47.5,52 42.5,47.5 42.5,41 C49,41 54,45.5 54,52 Z" />
+                  <path
+                      android:fillColor="#2E7D32"
+                      android:pathData="M54,48 C54,41.5 59,36.5 66,36.5 C66,43 61,48 54,48 Z" />
+                  <!-- 腳步點 -->
+                  <path
+                      android:fillColor="#FFCA28"
+                      android:pathData="M30.6,77 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
+                  <path
+                      android:fillColor="#FFCA28"
+                      android:pathData="M36.6,79.5 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
+                  <path
+                      android:fillColor="#FFCA28"
+                      android:pathData="M42.6,81.5 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
+              </group>
+          </vector>
+          __PW_EOF__
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_notify.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp"
+              android:height="24dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <group android:pivotX="54" android:pivotY="58" android:scaleX="1.7" android:scaleY="1.7" android:translateY="-6">
+                  <path
+                      android:fillColor="#FFFFFF"
+                      android:fillType="evenOdd"
+                      android:pathData="M54,84 C48,74 37,65 37,52 A17,17 0 1,1 71,52 C71,65 60,74 54,84 Z M54,52 C47.5,52 42.5,47.5 42.5,41 C49,41 54,45.5 54,52 Z M54,48 C54,41.5 59,36.5 66,36.5 C66,43 61,48 54,48 Z" />
+              </group>
+          </vector>
+          __PW_EOF__
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          __PW_EOF__
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          __PW_EOF__
           mkdir -p app/src/main/java/com/example/pikminwalker
           cat > app/src/main/java/com/example/pikminwalker/MockState.kt <<'__PW_EOF__'
           package com.example.pikminwalker
@@ -347,7 +576,7 @@ jobs:
               val current = MutableStateFlow<Pos?>(null)
 
               /** 狀態說明文字 */
-              val status = MutableStateFlow("尚未開始模擬")
+              val status = MutableStateFlow("尚未開始模擬（點這裡可開啟設定導覽）")
 
               /** 是否正在走路線 */
               val walking = MutableStateFlow(false)
@@ -357,6 +586,266 @@ jobs:
 
               /** 路線剩餘距離（公尺） */
               val remainingMeters = MutableStateFlow(0.0)
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/SetupUtil.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.Manifest
+          import android.app.AppOpsManager
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.Process
+          import android.provider.Settings
+          import androidx.core.content.ContextCompat
+
+          /** 檢查與開啟各項系統設定 */
+          object SetupUtil {
+
+              /** 開發人員選項是否已開啟 */
+              fun isDeveloperEnabled(ctx: Context): Boolean = try {
+                  Settings.Global.getInt(ctx.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1
+              } catch (_: Exception) {
+                  false
+              }
+
+              /** 本 App 是否已被選為模擬位置應用程式 */
+              fun isMockAppSelected(ctx: Context): Boolean = try {
+                  val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+                  val mode = if (Build.VERSION.SDK_INT >= 29) {
+                      ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), ctx.packageName)
+                  } else {
+                      @Suppress("DEPRECATION")
+                      ops.checkOpNoThrow(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), ctx.packageName)
+                  }
+                  mode == AppOpsManager.MODE_ALLOWED
+              } catch (_: Exception) {
+                  false
+              }
+
+              fun requiredPermissions(): Array<String> {
+                  val perms = mutableListOf(
+                      Manifest.permission.ACCESS_FINE_LOCATION,
+                      Manifest.permission.ACCESS_COARSE_LOCATION
+                  )
+                  if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
+                  return perms.toTypedArray()
+              }
+
+              fun missingPermissions(ctx: Context): Array<String> =
+                  requiredPermissions().filter {
+                      ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED
+                  }.toTypedArray()
+
+              /** 位置權限一定要有；通知權限沒給也能用，只是看不到通知 */
+              fun hasLocationPermission(ctx: Context): Boolean =
+                  ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                      PackageManager.PERMISSION_GRANTED
+
+              fun allDone(ctx: Context): Boolean =
+                  isMockAppSelected(ctx) && hasLocationPermission(ctx)
+
+              /** 開啟「關於手機」 */
+              fun openAboutPhone(ctx: Context) {
+                  tryStart(ctx, Intent(Settings.ACTION_DEVICE_INFO_SETTINGS))
+                      || tryStart(ctx, Intent(Settings.ACTION_SETTINGS))
+              }
+
+              /**
+               * 直接開啟開發人員選項，並嘗試自動捲動並標示「選取模擬位置應用程式」那一列
+               * （原生 Android 與多數品牌支援；不支援的手機會停在開發人員選項頁面最上方）
+               */
+              fun openMockLocationSetting(ctx: Context) {
+                  val key = "mock_location_app"
+                  val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
+                      putExtra(":settings:fragment_args_key", key)
+                      putExtra(":settings:show_fragment_args", Bundle().apply {
+                          putString(":settings:fragment_args_key", key)
+                      })
+                  }
+                  tryStart(ctx, intent) || tryStart(ctx, Intent(Settings.ACTION_SETTINGS))
+              }
+
+              private fun tryStart(ctx: Context, i: Intent): Boolean = try {
+                  ctx.startActivity(i); true
+              } catch (_: Exception) {
+                  false
+              }
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/SetupActivity.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.graphics.Color
+          import android.graphics.drawable.GradientDrawable
+          import android.os.Bundle
+          import android.view.View
+          import android.widget.Button
+          import android.widget.TextView
+          import android.widget.Toast
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AppCompatActivity
+
+          /**
+           * 設定導覽：一步一步帶使用者完成
+           * 1. 開啟開發人員選項  2. 選取模擬位置應用程式  3. 允許權限
+           * 每次回到此畫面都會自動檢查，完成的步驟會自動跳到下一步。
+           */
+          class SetupActivity : AppCompatActivity() {
+
+              private class Step(
+                  val title: String,
+                  val body: String,
+                  val button: String,
+                  val isDone: () -> Boolean,
+                  val action: () -> Unit
+              )
+
+              private lateinit var steps: List<Step>
+              private var index = 0
+
+              private lateinit var tvDots: TextView
+              private lateinit var tvStepNum: TextView
+              private lateinit var tvTitle: TextView
+              private lateinit var tvState: TextView
+              private lateinit var tvBody: TextView
+              private lateinit var btnAction: Button
+              private lateinit var btnBack: Button
+              private lateinit var btnNext: Button
+
+              private val permLauncher =
+                  registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+                      autoAdvance()
+                  }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_setup)
+
+                  tvDots = findViewById(R.id.tvDots)
+                  tvStepNum = findViewById(R.id.tvStepNum)
+                  tvTitle = findViewById(R.id.tvTitle)
+                  tvState = findViewById(R.id.tvState)
+                  tvBody = findViewById(R.id.tvBody)
+                  btnAction = findViewById(R.id.btnAction)
+                  btnBack = findViewById(R.id.btnBack)
+                  btnNext = findViewById(R.id.btnNext)
+
+                  steps = listOf(
+                      Step(
+                          title = "開啟開發人員選項",
+                          body = "1. 按下方「前往關於手機」\n\n" +
+                              "2. 找到「版本號碼」，連續點 7 次\n" +
+                              "　（OPPO / realme：關於本機 → 版本 → 版本號碼）\n" +
+                              "　（Samsung：軟體資訊 → 版本號碼）\n" +
+                              "　（小米：MIUI / HyperOS 版本）\n\n" +
+                              "3. 看到「你已處於開發人員模式」後，按返回鍵回到這裡",
+                          button = "前往關於手機",
+                          isDone = { SetupUtil.isDeveloperEnabled(this) },
+                          action = { SetupUtil.openAboutPhone(this) }
+                      ),
+                      Step(
+                          title = "選取模擬位置應用程式",
+                          body = "1. 按下方「設定」，會直接開啟「開發人員選項」\n\n" +
+                              "2. 找到「位置」區塊的「選取模擬位置應用程式」\n" +
+                              "　（部分手機會自動捲到這一列並標示出來）\n\n" +
+                              "3. 點進去，選擇「皮克敏散步助手」\n\n" +
+                              "4. 按返回鍵回到這裡，會自動檢查是否完成",
+                          button = "設定",
+                          isDone = { SetupUtil.isMockAppSelected(this) },
+                          action = { SetupUtil.openMockLocationSetting(this) }
+                      ),
+                      Step(
+                          title = "允許位置與通知權限",
+                          body = "按下方「允許權限」：\n\n" +
+                              "• 位置：選「使用應用程式時允許」，並保持「精確位置」開啟\n\n" +
+                              "• 通知：選「允許」，模擬時通知列會顯示狀態與「停止模擬」按鈕\n\n" +
+                              "建議另外到手機設定把本 App 的電池用量設為「不限制」，避免背景被關掉。",
+                          button = "允許權限",
+                          isDone = { SetupUtil.missingPermissions(this).isEmpty() },
+                          action = {
+                              val need = SetupUtil.missingPermissions(this)
+                              if (need.isNotEmpty()) permLauncher.launch(need)
+                          }
+                      )
+                  )
+
+                  index = firstUndone()
+
+                  btnAction.setOnClickListener { steps[index].action() }
+                  btnBack.setOnClickListener {
+                      if (index > 0) { index--; render() }
+                  }
+                  btnNext.setOnClickListener {
+                      if (index < steps.size - 1) {
+                          index++; render()
+                      } else {
+                          finishSetup()
+                      }
+                  }
+                  render()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  autoAdvance()
+              }
+
+              /** 目前步驟若已完成，自動跳到下一個未完成的步驟 */
+              private fun autoAdvance() {
+                  if (steps[index].isDone()) {
+                      val next = (index + 1 until steps.size).firstOrNull { !steps[it].isDone() }
+                      if (next != null) index = next
+                  }
+                  render()
+              }
+
+              private fun firstUndone(): Int =
+                  steps.indexOfFirst { !it.isDone() }.let { if (it < 0) steps.size - 1 else it }
+
+              private fun render() {
+                  val step = steps[index]
+                  val done = step.isDone()
+
+                  tvDots.text = steps.indices.joinToString(" ") { i ->
+                      when {
+                          steps[i].isDone() -> "●"
+                          i == index -> "◉"
+                          else -> "○"
+                      }
+                  }
+                  tvStepNum.text = "步驟 ${index + 1}"
+                  tvTitle.text = step.title
+                  tvBody.text = step.body
+
+                  tvState.text = if (done) "✓ 已完成" else "尚未完成"
+                  tvState.setTextColor(if (done) Color.parseColor("#1B5E20") else Color.parseColor("#5D4037"))
+                  tvState.background = GradientDrawable().apply {
+                      cornerRadius = 40f
+                      setColor(if (done) Color.parseColor("#C5E1A5") else Color.parseColor("#FFE082"))
+                  }
+
+                  btnAction.text = if (done) "再次開啟" else step.button
+                  btnBack.visibility = if (index > 0) View.VISIBLE else View.INVISIBLE
+                  btnNext.text = if (index < steps.size - 1) "下一步" else "完成"
+              }
+
+              private fun finishSetup() {
+                  if (!SetupUtil.isMockAppSelected(this)) {
+                      Toast.makeText(this, "還沒選取模擬位置應用程式，請完成步驟 2", Toast.LENGTH_LONG).show()
+                      index = 1; render(); return
+                  }
+                  if (!SetupUtil.hasLocationPermission(this)) {
+                      Toast.makeText(this, "還沒允許位置權限，請完成步驟 3", Toast.LENGTH_LONG).show()
+                      index = 2; render(); return
+                  }
+                  finish()
+              }
           }
           __PW_EOF__
           mkdir -p app/src/main/java/com/example/pikminwalker
@@ -670,7 +1159,7 @@ jobs:
                       else -> "模擬位置中"
                   }
                   return NotificationCompat.Builder(this, CHANNEL_ID)
-                      .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                      .setSmallIcon(R.drawable.ic_notify)
                       .setContentTitle("皮克敏散步助手")
                       .setContentText(text)
                       .setOngoing(true)
@@ -715,6 +1204,7 @@ jobs:
           package com.example.pikminwalker
 
           import android.Manifest
+          import android.annotation.SuppressLint
           import android.app.AppOpsManager
           import android.content.Context
           import android.content.Intent
@@ -725,8 +1215,12 @@ jobs:
           import android.graphics.Paint
           import android.graphics.drawable.BitmapDrawable
           import android.location.Location
+          import android.location.LocationListener
+          import android.location.LocationManager
           import android.os.Build
           import android.os.Bundle
+          import android.os.Looper
+          import android.os.SystemClock
           import android.os.Process
           import android.provider.Settings
           import android.view.View
@@ -743,6 +1237,7 @@ jobs:
           import androidx.lifecycle.lifecycleScope
           import androidx.lifecycle.repeatOnLifecycle
           import com.google.android.material.button.MaterialButtonToggleGroup
+          import kotlinx.coroutines.flow.MutableStateFlow
           import kotlinx.coroutines.flow.combine
           import kotlinx.coroutines.launch
           import org.osmdroid.config.Configuration
@@ -777,6 +1272,22 @@ jobs:
               private lateinit var routeLine: Polyline
               private var firstFix = true
               private lateinit var btnLayer: Button
+
+              // ---- 沒模擬時：顯示真實 GPS ----
+              private val lm by lazy { getSystemService(Context.LOCATION_SERVICE) as LocationManager }
+              private val realText = MutableStateFlow("")
+              private var realLoc: Location? = null
+              private var realMarker: Marker? = null
+              private var listeningReal = false
+              private var firstRealFix = true
+              private val realListener = object : LocationListener {
+                  override fun onLocationChanged(location: Location) { onRealLocation(location) }
+                  override fun onProviderEnabled(provider: String) {}
+                  override fun onProviderDisabled(provider: String) {}
+                  @Deprecated("Deprecated in Java")
+                  @Suppress("DEPRECATION")
+                  override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+              }
 
               /** 可切換的地圖來源（都不需要 API key） */
               private val tileSources by lazy {
@@ -829,7 +1340,10 @@ jobs:
 
                   setupMap()
                   setupButtons()
-                  requestPermissions()
+                  // 第一次使用或設定沒完成時，自動開啟設定導覽
+                  if (savedInstanceState == null && !SetupUtil.allDone(this)) openSetupGuide()
+                  // 點上方狀態列可隨時重新開啟設定導覽
+                  tvStatus.setOnClickListener { openSetupGuide() }
                   observeState()
               }
 
@@ -956,8 +1470,13 @@ jobs:
                   }
 
                   findViewById<Button>(R.id.btnLocate).setOnClickListener {
-                      MockState.current.value?.let { map.controller.animateTo(GeoPoint(it.lat, it.lng)) }
-                          ?: toast("還沒開始模擬")
+                      val mock = MockState.current.value
+                      val real = realLoc
+                      when {
+                          mock != null -> map.controller.animateTo(GeoPoint(mock.lat, mock.lng))
+                          real != null -> map.controller.animateTo(GeoPoint(real.latitude, real.longitude))
+                          else -> toast("還沒抓到 GPS 位置")
+                      }
                   }
 
                   findViewById<Button>(R.id.btnGo).setOnClickListener { goToTypedCoord() }
@@ -1034,7 +1553,9 @@ jobs:
                                       meMarker?.let { map.overlays.remove(it) }
                                       meMarker = null
                                       firstFix = true
+                                      startRealGps()
                                   } else {
+                                      stopRealGps()
                                       val gp = GeoPoint(pos.lat, pos.lng)
                                       if (meMarker == null) {
                                           meMarker = Marker(map).apply {
@@ -1054,10 +1575,11 @@ jobs:
                           }
                           launch {
                               combine(MockState.status, MockState.current, MockState.remainingMeters,
-                                  MockState.walking) { s, c, r, w ->
+                                  MockState.walking, realText) { s, c, r, w, real ->
                                   buildString {
                                       append(s)
                                       if (c != null) append("\n目前：%.6f, %.6f".format(c.lat, c.lng))
+                                      else if (real.isNotEmpty()) append("\n").append(real)
                                       if (w && r > 0) append("\n剩餘 %.0f 公尺".format(r))
                                   }
                               }.collect { tvStatus.text = it }
@@ -1089,53 +1611,95 @@ jobs:
                   }
               }
 
-              // ---------------- 權限與檢查 ----------------
+              // ---------------- 真實 GPS（沒模擬時顯示） ----------------
 
-              private fun requestPermissions() {
-                  val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION,
-                      Manifest.permission.ACCESS_COARSE_LOCATION)
-                  if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
-                  val need = perms.filter {
-                      ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+              @SuppressLint("MissingPermission")
+              private fun startRealGps() {
+                  if (listeningReal || MockState.current.value != null) return
+                  if (!SetupUtil.hasLocationPermission(this)) {
+                      realText.value = "真實 GPS：尚未允許位置權限"
+                      return
                   }
-                  if (need.isNotEmpty()) permLauncher.launch(need.toTypedArray())
+                  listeningReal = true
+                  if (realLoc == null) realText.value = "真實 GPS：定位中…"
+                  // 先用最後已知位置快速顯示
+                  for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+                      try { lm.getLastKnownLocation(p)?.let { onRealLocation(it) } } catch (_: Exception) {}
+                  }
+                  for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+                      try {
+                          if (lm.isProviderEnabled(p)) {
+                              lm.requestLocationUpdates(p, 2000L, 0f, realListener, Looper.getMainLooper())
+                          }
+                      } catch (_: Exception) {}
+                  }
+                  if (!lm.isProviderEnabled(LocationManager.GPS_PROVIDER) &&
+                      !lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                      realText.value = "真實 GPS：手機定位功能已關閉"
+                  }
               }
 
-              private fun checkReady(): Boolean {
-                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                      != PackageManager.PERMISSION_GRANTED) {
-                      toast("請先允許位置權限"); requestPermissions(); return false
+              private fun stopRealGps() {
+                  if (listeningReal) {
+                      try { lm.removeUpdates(realListener) } catch (_: Exception) {}
+                      listeningReal = false
                   }
-                  if (!isMockAppSelected()) {
-                      AlertDialog.Builder(this)
-                          .setTitle("需要設定模擬位置")
-                          .setMessage("請到「設定 → 開發人員選項 → 選取模擬位置應用程式」，選擇「皮克敏散步助手」。\n\n" +
-                                  "（若沒有開發人員選項：到「關於手機」連點「版本號碼」7 次開啟）")
-                          .setPositiveButton("前往設定") { _, _ ->
-                              try {
-                                  startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-                              } catch (_: Exception) {
-                                  startActivity(Intent(Settings.ACTION_SETTINGS))
-                              }
-                          }
-                          .setNegativeButton("取消", null)
-                          .show()
+                  realMarker?.let { map.overlays.remove(it) }
+                  realMarker = null
+                  realText.value = ""
+              }
+
+              private fun onRealLocation(loc: Location) {
+                  if (MockState.current.value != null) return
+                  // 忽略模擬出來的位置
+                  val isMock = if (Build.VERSION.SDK_INT >= 31) loc.isMock else {
+                      @Suppress("DEPRECATION") loc.isFromMockProvider
+                  }
+                  if (isMock) return
+                  // 有 10 秒內的 GPS 定位時，不要被較不準的網路定位蓋掉
+                  val prev = realLoc
+                  if (prev != null && prev.provider == LocationManager.GPS_PROVIDER &&
+                      loc.provider != LocationManager.GPS_PROVIDER &&
+                      (loc.elapsedRealtimeNanos - prev.elapsedRealtimeNanos) < 10_000_000_000L) return
+
+                  realLoc = loc
+                  val ageSec = (SystemClock.elapsedRealtimeNanos() - loc.elapsedRealtimeNanos) / 1_000_000_000L
+                  val src = if (loc.provider == LocationManager.GPS_PROVIDER) "GPS" else "網路"
+                  realText.value = buildString {
+                      append("真實 GPS：%.6f, %.6f".format(loc.latitude, loc.longitude))
+                      append("\n（%s，誤差約 ±%.0f 公尺".format(src, loc.accuracy))
+                      if (ageSec > 30) append("，%d 秒前".format(ageSec))
+                      append("）")
+                  }
+
+                  val gp = GeoPoint(loc.latitude, loc.longitude)
+                  if (realMarker == null) {
+                      realMarker = Marker(map).apply {
+                          icon = labelIcon("真", Color.parseColor("#1565C0"))
+                          setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                          infoWindow = null
+                      }
+                      map.overlays.add(realMarker)
+                  }
+                  realMarker!!.position = gp
+                  if (firstRealFix) { map.controller.animateTo(gp); firstRealFix = false }
+                  map.invalidate()
+              }
+
+              // ---------------- 權限與檢查 ----------------
+
+              private fun openSetupGuide() {
+                  startActivity(Intent(this, SetupActivity::class.java))
+              }
+
+              /** 設定沒完成就打開設定導覽 */
+              private fun checkReady(): Boolean {
+                  if (!SetupUtil.allDone(this)) {
+                      toast("還有設定沒完成，請依照導覽操作")
+                      openSetupGuide()
                       return false
                   }
                   return true
-              }
-
-              private fun isMockAppSelected(): Boolean = try {
-                  val ops = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-                  val mode = if (Build.VERSION.SDK_INT >= 29) {
-                      ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), packageName)
-                  } else {
-                      @Suppress("DEPRECATION")
-                      ops.checkOpNoThrow(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), packageName)
-                  }
-                  mode == AppOpsManager.MODE_ALLOWED
-              } catch (_: Exception) {
-                  false
               }
 
               // ---------------- 小工具 ----------------
@@ -1169,10 +1733,24 @@ jobs:
 
               private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 
-              override fun onResume() { super.onResume(); map.onResume() }
-              override fun onPause() { super.onPause(); map.onPause() }
+              override fun onResume() {
+                  super.onResume()
+                  map.onResume()
+                  if (MockState.current.value == null) startRealGps()
+              }
+
+              override fun onPause() {
+                  super.onPause()
+                  map.onPause()
+                  if (listeningReal) {
+                      try { lm.removeUpdates(realListener) } catch (_: Exception) {}
+                      listeningReal = false
+                  }
+              }
           }
           __PW_EOF__
+          # 固定簽章金鑰（讓 App 可以直接覆蓋更新）
+          echo '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' | base64 -d > app/release.jks
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
