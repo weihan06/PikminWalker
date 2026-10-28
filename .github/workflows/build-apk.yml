@@ -102,6 +102,7 @@ jobs:
               implementation("com.google.android.material:material:1.12.0")
               implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+              implementation("androidx.recyclerview:recyclerview:1.3.2")
               // OpenStreetMap 地圖，不需要 Google Maps API key
               implementation("org.osmdroid:osmdroid-android:6.1.18")
           }
@@ -146,6 +147,18 @@ jobs:
                       android:exported="false"
                       android:label="設定導覽" />
 
+                  <activity
+                      android:name=".FavoritesActivity"
+                      android:exported="true"
+                      android:label="加入皮克敏收藏">
+                      <!-- 從 LINE、訊息等分享文字給本 App 時直接匯入 -->
+                      <intent-filter>
+                          <action android:name="android.intent.action.SEND" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <data android:mimeType="text/plain" />
+                      </intent-filter>
+                  </activity>
+
                   <service
                       android:name=".MockLocationService"
                       android:exported="false"
@@ -153,698 +166,1427 @@ jobs:
               </application>
           </manifest>
           __PW_EOF__
-          mkdir -p app/src/main/res/values
-          cat > app/src/main/res/values/strings.xml <<'__PW_EOF__'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <string name="app_name">皮克敏散步助手</string>
-          </resources>
-          __PW_EOF__
-          mkdir -p app/src/main/res/values
-          cat > app/src/main/res/values/themes.xml <<'__PW_EOF__'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <style name="Theme.PikminWalker" parent="Theme.Material3.Light.NoActionBar">
-                  <item name="colorPrimary">#2E7D32</item>
-                  <item name="colorSecondary">#F9A825</item>
-              </style>
-          </resources>
-          __PW_EOF__
-          mkdir -p app/src/main/res/layout
-          cat > app/src/main/res/layout/activity_main.xml <<'__PW_EOF__'
-          <?xml version="1.0" encoding="utf-8"?>
-          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              xmlns:app="http://schemas.android.com/apk/res-auto"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent">
-
-              <org.osmdroid.views.MapView
-                  android:id="@+id/map"
-                  android:layout_width="match_parent"
-                  android:layout_height="match_parent" />
-
-              <TextView
-                  android:id="@+id/tvStatus"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:layout_gravity="top"
-                  android:layout_margin="8dp"
-                  android:background="#E6FFFFFF"
-                  android:elevation="4dp"
-                  android:padding="10dp"
-                  android:text="尚未開始模擬"
-                  android:textColor="#222222"
-                  android:textSize="13sp" />
-
-              <LinearLayout
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:layout_gravity="bottom"
-                  android:background="#F7FFFFFF"
-                  android:elevation="8dp"
-                  android:orientation="vertical"
-                  android:padding="10dp">
-
-                  <com.google.android.material.button.MaterialButtonToggleGroup
-                      android:id="@+id/toggleMode"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      app:checkedButton="@+id/btnModeJump"
-                      app:selectionRequired="true"
-                      app:singleSelection="true">
-
-                      <Button
-                          android:id="@+id/btnModeJump"
-                          style="?attr/materialButtonOutlinedStyle"
-                          android:layout_width="0dp"
-                          android:layout_height="wrap_content"
-                          android:layout_weight="1"
-                          android:text="瞬移模式" />
-
-                      <Button
-                          android:id="@+id/btnModeRoute"
-                          style="?attr/materialButtonOutlinedStyle"
-                          android:layout_width="0dp"
-                          android:layout_height="wrap_content"
-                          android:layout_weight="1"
-                          android:text="路線散步模式" />
-                  </com.google.android.material.button.MaterialButtonToggleGroup>
-
-                  <LinearLayout
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:gravity="center_vertical"
-                      android:orientation="horizontal">
-
-                      <EditText
-                          android:id="@+id/etCoord"
-                          android:layout_width="0dp"
-                          android:layout_height="wrap_content"
-                          android:layout_weight="1"
-                          android:hint="輸入座標，例：22.9908, 120.2133"
-                          android:imeOptions="actionDone"
-                          android:inputType="text"
-                          android:textSize="14sp" />
-
-                      <Button
-                          android:id="@+id/btnGo"
-                          style="?attr/materialButtonOutlinedStyle"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:text="放上地圖" />
-
-                      <Button
-                          android:id="@+id/btnLayer"
-                          style="?attr/materialButtonOutlinedStyle"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:layout_marginStart="4dp"
-                          android:maxLines="1"
-                          android:text="街道圖" />
-                  </LinearLayout>
-
-                  <LinearLayout
-                      android:id="@+id/rowRoute"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:gravity="center_vertical"
-                      android:orientation="horizontal"
-                      android:visibility="gone">
-
-                      <TextView
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:text="速度 km/h：" />
-
-                      <EditText
-                          android:id="@+id/etSpeed"
-                          android:layout_width="64dp"
-                          android:layout_height="wrap_content"
-                          android:inputType="numberDecimal"
-                          android:text="5" />
-
-                      <CheckBox
-                          android:id="@+id/cbLoop"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:text="來回循環" />
-
-                      <Button
-                          android:id="@+id/btnUndo"
-                          style="?attr/borderlessButtonStyle"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:text="復原" />
-
-                      <Button
-                          android:id="@+id/btnClear"
-                          style="?attr/borderlessButtonStyle"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:text="清除" />
-                  </LinearLayout>
-
-                  <TextView
-                      android:id="@+id/tvHint"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:paddingVertical="4dp"
-                      android:text="點地圖選擇目的地"
-                      android:textColor="#555555"
-                      android:textSize="12sp" />
-
-                  <LinearLayout
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:orientation="horizontal">
-
-                      <Button
-                          android:id="@+id/btnPrimary"
-                          android:layout_width="0dp"
-                          android:layout_height="wrap_content"
-                          android:layout_weight="1.4"
-                          android:text="移動到這裡" />
-
-                      <Button
-                          android:id="@+id/btnPause"
-                          style="?attr/materialButtonOutlinedStyle"
-                          android:layout_width="0dp"
-                          android:layout_height="wrap_content"
-                          android:layout_marginStart="6dp"
-                          android:layout_weight="1"
-                          android:maxLines="1"
-                          android:text="暫停" />
-
-                      <Button
-                          android:id="@+id/btnStop"
-                          style="?attr/materialButtonOutlinedStyle"
-                          android:layout_width="0dp"
-                          android:layout_height="wrap_content"
-                          android:layout_marginStart="6dp"
-                          android:layout_weight="1"
-                          android:maxLines="1"
-                          android:text="停止" />
-
-                      <Button
-                          android:id="@+id/btnLocate"
-                          style="?attr/materialButtonOutlinedStyle"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:layout_marginStart="6dp"
-                          android:text="◎" />
-                  </LinearLayout>
-              </LinearLayout>
-          </FrameLayout>
-          __PW_EOF__
-          mkdir -p app/src/main/res/layout
-          cat > app/src/main/res/layout/activity_setup.xml <<'__PW_EOF__'
-          <?xml version="1.0" encoding="utf-8"?>
-          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:background="#37474F"
-              android:orientation="vertical"
-              android:padding="24dp">
-
-              <TextView
-                  android:id="@+id/tvDots"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:layout_marginTop="24dp"
-                  android:gravity="center"
-                  android:letterSpacing="0.3"
-                  android:textColor="#FFFFFF"
-                  android:textSize="18sp" />
-
-              <TextView
-                  android:id="@+id/tvStepNum"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:layout_marginTop="16dp"
-                  android:gravity="center"
-                  android:textColor="#FFFFFF"
-                  android:textSize="40sp"
-                  android:textStyle="bold" />
-
-              <TextView
-                  android:id="@+id/tvTitle"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:layout_marginTop="8dp"
-                  android:gravity="center"
-                  android:textColor="#C5E1A5"
-                  android:textSize="22sp"
-                  android:textStyle="bold" />
-
-              <TextView
-                  android:id="@+id/tvState"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:layout_gravity="center_horizontal"
-                  android:layout_marginTop="12dp"
-                  android:paddingHorizontal="14dp"
-                  android:paddingVertical="4dp"
-                  android:textSize="15sp"
-                  android:textStyle="bold" />
-
-              <ScrollView
-                  android:layout_width="match_parent"
-                  android:layout_height="0dp"
-                  android:layout_marginTop="20dp"
-                  android:layout_weight="1">
-
-                  <TextView
-                      android:id="@+id/tvBody"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:lineSpacingMultiplier="1.35"
-                      android:textColor="#FFFFFF"
-                      android:textSize="18sp" />
-              </ScrollView>
-
-              <Button
-                  android:id="@+id/btnAction"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:layout_gravity="center_horizontal"
-                  android:layout_marginBottom="16dp"
-                  android:backgroundTint="#2E7D32"
-                  android:minWidth="200dp"
-                  android:paddingVertical="12dp"
-                  android:textSize="20sp" />
-
-              <LinearLayout
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:orientation="horizontal">
-
-                  <Button
-                      android:id="@+id/btnBack"
-                      style="?attr/borderlessButtonStyle"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="上一步"
-                      android:textColor="#FFFFFF"
-                      android:textSize="17sp" />
-
-                  <View
-                      android:layout_width="0dp"
-                      android:layout_height="1dp"
-                      android:layout_weight="1" />
-
-                  <Button
-                      android:id="@+id/btnNext"
-                      style="?attr/borderlessButtonStyle"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:textColor="#FFFFFF"
-                      android:textSize="17sp" />
-              </LinearLayout>
-          </LinearLayout>
-          __PW_EOF__
-          mkdir -p app/src/main/res/drawable
-          cat > app/src/main/res/drawable/ic_launcher_background.xml <<'__PW_EOF__'
-          <?xml version="1.0" encoding="utf-8"?>
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              android:width="108dp"
-              android:height="108dp"
-              android:viewportWidth="108"
-              android:viewportHeight="108">
-              <path
-                  android:fillColor="#388E3C"
-                  android:pathData="M0,0 L108,0 L108,108 L0,108 Z" />
-              <path
-                  android:fillColor="#2E7D32"
-                  android:pathData="M0,74 C24,66 44,80 66,74 C84,69 96,72 108,70 L108,108 L0,108 Z" />
-          </vector>
-          __PW_EOF__
-          mkdir -p app/src/main/res/drawable
-          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'__PW_EOF__'
-          <?xml version="1.0" encoding="utf-8"?>
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              android:width="108dp"
-              android:height="108dp"
-              android:viewportWidth="108"
-              android:viewportHeight="108">
-              <group
-                  android:pivotX="54"
-                  android:pivotY="58"
-                  android:scaleX="1.08"
-                  android:scaleY="1.08"
-                  android:translateY="-3">
-                  <!-- 圖釘陰影 -->
-                  <group
-                      android:translateX="1.5"
-                      android:translateY="2">
-                      <path
-                          android:fillAlpha="0.35"
-                          android:fillColor="#1B5E20"
-                          android:pathData="M54,84 C48,74 37,65 37,52 A17,17 0 1,1 71,52 C71,65 60,74 54,84 Z" />
-                  </group>
-                  <!-- 白色定位圖釘 -->
-                  <path
-                      android:fillColor="#FFFFFF"
-                      android:pathData="M54,84 C48,74 37,65 37,52 A17,17 0 1,1 71,52 C71,65 60,74 54,84 Z" />
-                  <!-- 嫩芽 -->
-                  <path
-                      android:pathData="M54,61 L54,47"
-                      android:strokeWidth="2.6"
-                      android:strokeColor="#2E7D32"
-                      android:strokeLineCap="round" />
-                  <path
-                      android:fillColor="#43A047"
-                      android:pathData="M54,52 C47.5,52 42.5,47.5 42.5,41 C49,41 54,45.5 54,52 Z" />
-                  <path
-                      android:fillColor="#2E7D32"
-                      android:pathData="M54,48 C54,41.5 59,36.5 66,36.5 C66,43 61,48 54,48 Z" />
-                  <!-- 腳步點 -->
-                  <path
-                      android:fillColor="#FFCA28"
-                      android:pathData="M30.6,77 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
-                  <path
-                      android:fillColor="#FFCA28"
-                      android:pathData="M36.6,79.5 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
-                  <path
-                      android:fillColor="#FFCA28"
-                      android:pathData="M42.6,81.5 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
-              </group>
-          </vector>
-          __PW_EOF__
-          mkdir -p app/src/main/res/drawable
-          cat > app/src/main/res/drawable/ic_notify.xml <<'__PW_EOF__'
-          <?xml version="1.0" encoding="utf-8"?>
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              android:width="24dp"
-              android:height="24dp"
-              android:viewportWidth="108"
-              android:viewportHeight="108">
-              <group android:pivotX="54" android:pivotY="58" android:scaleX="1.7" android:scaleY="1.7" android:translateY="-6">
-                  <path
-                      android:fillColor="#FFFFFF"
-                      android:fillType="evenOdd"
-                      android:pathData="M54,84 C48,74 37,65 37,52 A17,17 0 1,1 71,52 C71,65 60,74 54,84 Z M54,52 C47.5,52 42.5,47.5 42.5,41 C49,41 54,45.5 54,52 Z M54,48 C54,41.5 59,36.5 66,36.5 C66,43 61,48 54,48 Z" />
-              </group>
-          </vector>
-          __PW_EOF__
-          mkdir -p app/src/main/res/mipmap-anydpi-v26
-          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'__PW_EOF__'
-          <?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@drawable/ic_launcher_background" />
-              <foreground android:drawable="@drawable/ic_launcher_foreground" />
-          </adaptive-icon>
-          __PW_EOF__
-          mkdir -p app/src/main/res/mipmap-anydpi-v26
-          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml <<'__PW_EOF__'
-          <?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@drawable/ic_launcher_background" />
-              <foreground android:drawable="@drawable/ic_launcher_foreground" />
-          </adaptive-icon>
-          __PW_EOF__
           mkdir -p app/src/main/java/com/example/pikminwalker
-          cat > app/src/main/java/com/example/pikminwalker/MockState.kt <<'__PW_EOF__'
+          cat > app/src/main/java/com/example/pikminwalker/FavoriteDialogs.kt <<'__PW_EOF__'
           package com.example.pikminwalker
 
-          import kotlinx.coroutines.flow.MutableStateFlow
-
-          /** Service 與畫面之間共用的狀態 */
-          object MockState {
-              data class Pos(val lat: Double, val lng: Double)
-
-              /** 目前送出的模擬位置（null = 沒在模擬） */
-              val current = MutableStateFlow<Pos?>(null)
-
-              /** 狀態說明文字 */
-              val status = MutableStateFlow("尚未開始模擬（點這裡可開啟設定導覽）")
-
-              /** 是否正在走路線 */
-              val walking = MutableStateFlow(false)
-
-              /** 是否暫停 */
-              val paused = MutableStateFlow(false)
-
-              /** 路線剩餘距離（公尺） */
-              val remainingMeters = MutableStateFlow(0.0)
-          }
-          __PW_EOF__
-          mkdir -p app/src/main/java/com/example/pikminwalker
-          cat > app/src/main/java/com/example/pikminwalker/SetupUtil.kt <<'__PW_EOF__'
-          package com.example.pikminwalker
-
-          import android.Manifest
-          import android.app.AppOpsManager
-          import android.content.Context
-          import android.content.Intent
-          import android.content.pm.PackageManager
-          import android.os.Build
-          import android.os.Bundle
-          import android.os.Process
-          import android.provider.Settings
-          import androidx.core.content.ContextCompat
-
-          /** 檢查與開啟各項系統設定 */
-          object SetupUtil {
-
-              /** 開發人員選項是否已開啟 */
-              fun isDeveloperEnabled(ctx: Context): Boolean = try {
-                  Settings.Global.getInt(ctx.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1
-              } catch (_: Exception) {
-                  false
-              }
-
-              /** 本 App 是否已被選為模擬位置應用程式 */
-              fun isMockAppSelected(ctx: Context): Boolean = try {
-                  val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-                  val mode = if (Build.VERSION.SDK_INT >= 29) {
-                      ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), ctx.packageName)
-                  } else {
-                      @Suppress("DEPRECATION")
-                      ops.checkOpNoThrow(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), ctx.packageName)
-                  }
-                  mode == AppOpsManager.MODE_ALLOWED
-              } catch (_: Exception) {
-                  false
-              }
-
-              fun requiredPermissions(): Array<String> {
-                  val perms = mutableListOf(
-                      Manifest.permission.ACCESS_FINE_LOCATION,
-                      Manifest.permission.ACCESS_COARSE_LOCATION
-                  )
-                  if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
-                  return perms.toTypedArray()
-              }
-
-              fun missingPermissions(ctx: Context): Array<String> =
-                  requiredPermissions().filter {
-                      ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED
-                  }.toTypedArray()
-
-              /** 位置權限一定要有；通知權限沒給也能用，只是看不到通知 */
-              fun hasLocationPermission(ctx: Context): Boolean =
-                  ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) ==
-                      PackageManager.PERMISSION_GRANTED
-
-              fun allDone(ctx: Context): Boolean =
-                  isMockAppSelected(ctx) && hasLocationPermission(ctx)
-
-              /** 開啟「關於手機」 */
-              fun openAboutPhone(ctx: Context) {
-                  tryStart(ctx, Intent(Settings.ACTION_DEVICE_INFO_SETTINGS))
-                      || tryStart(ctx, Intent(Settings.ACTION_SETTINGS))
-              }
-
-              /**
-               * 直接開啟開發人員選項，並嘗試自動捲動並標示「選取模擬位置應用程式」那一列
-               * （原生 Android 與多數品牌支援；不支援的手機會停在開發人員選項頁面最上方）
-               */
-              fun openMockLocationSetting(ctx: Context) {
-                  val key = "mock_location_app"
-                  val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
-                      putExtra(":settings:fragment_args_key", key)
-                      putExtra(":settings:show_fragment_args", Bundle().apply {
-                          putString(":settings:fragment_args_key", key)
-                      })
-                  }
-                  tryStart(ctx, intent) || tryStart(ctx, Intent(Settings.ACTION_SETTINGS))
-              }
-
-              private fun tryStart(ctx: Context, i: Intent): Boolean = try {
-                  ctx.startActivity(i); true
-              } catch (_: Exception) {
-                  false
-              }
-          }
-          __PW_EOF__
-          mkdir -p app/src/main/java/com/example/pikminwalker
-          cat > app/src/main/java/com/example/pikminwalker/SetupActivity.kt <<'__PW_EOF__'
-          package com.example.pikminwalker
-
-          import android.graphics.Color
-          import android.graphics.drawable.GradientDrawable
-          import android.os.Bundle
+          import android.app.Activity
+          import android.text.InputType
           import android.view.View
+          import android.widget.AdapterView
+          import android.widget.ArrayAdapter
+          import android.widget.EditText
+          import android.widget.LinearLayout
+          import android.widget.Spinner
+          import android.widget.TextView
+          import android.widget.Toast
+          import androidx.appcompat.app.AlertDialog
+
+          /** 收藏相關的共用對話框 */
+          object FavoriteDialogs {
+
+              private fun Activity.dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+              /** 單一文字輸入框 */
+              fun input(
+                  act: Activity, title: String, preset: String, hint: String,
+                  onOk: (String) -> Unit
+              ) {
+                  val et = EditText(act).apply {
+                      setText(preset)
+                      setSelection(preset.length)
+                      this.hint = hint
+                      inputType = InputType.TYPE_CLASS_TEXT
+                      isSingleLine = true
+                  }
+                  val box = LinearLayout(act).apply {
+                      setPadding(act.dp(20), act.dp(8), act.dp(20), 0)
+                      addView(et, LinearLayout.LayoutParams(-1, -2))
+                  }
+                  AlertDialog.Builder(act)
+                      .setTitle(title)
+                      .setView(box)
+                      .setPositiveButton("確定") { _, _ -> onOk(et.text.toString().trim()) }
+                      .setNegativeButton("取消", null)
+                      .show()
+              }
+
+              /** 新增收藏：輸入名稱、選資料夾（可直接新增資料夾） */
+              fun addFavorite(
+                  act: Activity, lat: Double, lng: Double,
+                  presetFolderId: String? = null, presetName: String = "",
+                  onSaved: (FavoritesStore.Fav) -> Unit
+              ) {
+                  FavoritesStore.load(act)
+                  val folders = FavoritesStore.folders.toMutableList()
+                  val newLabel = "＋ 新資料夾…"
+                  fun labels() = folders.map { "📁 " + it.name } + newLabel
+
+                  val coord = TextView(act).apply {
+                      text = FavoritesStore.coordText(lat, lng)
+                      setTextColor(0xFF666666.toInt())
+                  }
+                  val etName = EditText(act).apply {
+                      hint = "名稱（例：台南公園）"
+                      setText(presetName)
+                      inputType = InputType.TYPE_CLASS_TEXT
+                      isSingleLine = true
+                  }
+                  val spinner = Spinner(act)
+                  val adapter = ArrayAdapter(act, android.R.layout.simple_spinner_dropdown_item, labels().toMutableList())
+                  spinner.adapter = adapter
+                  val startIdx = folders.indexOfFirst { it.id == presetFolderId }.let { if (it < 0) 0 else it }
+                  spinner.setSelection(startIdx)
+                  var lastValid = startIdx
+
+                  spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                      override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                          if (pos < folders.size) { lastValid = pos; return }
+                          // 選了「新資料夾」
+                          spinner.setSelection(lastValid)
+                          input(act, "新資料夾", "", "資料夾名稱") { name ->
+                              if (name.isEmpty()) return@input
+                              val f = FavoritesStore.addFolder(name)
+                              FavoritesStore.save(act)
+                              if (folders.none { it.id == f.id }) folders.add(f)
+                              adapter.clear(); adapter.addAll(labels()); adapter.notifyDataSetChanged()
+                              lastValid = folders.indexOfFirst { it.id == f.id }
+                              spinner.setSelection(lastValid)
+                          }
+                      }
+                      override fun onNothingSelected(p: AdapterView<*>?) {}
+                  }
+
+                  val box = LinearLayout(act).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(act.dp(20), act.dp(8), act.dp(20), 0)
+                      addView(coord)
+                      addView(etName, LinearLayout.LayoutParams(-1, -2))
+                      addView(TextView(act).apply { text = "資料夾"; setPadding(0, act.dp(12), 0, 0) })
+                      addView(spinner, LinearLayout.LayoutParams(-1, -2))
+                  }
+
+                  AlertDialog.Builder(act)
+                      .setTitle("★ 加入收藏")
+                      .setView(box)
+                      .setPositiveButton("收藏") { _, _ ->
+                          val f = folders.getOrNull(lastValid) ?: FavoritesStore.folders.first()
+                          val fav = FavoritesStore.addFav(etName.text.toString(), lat, lng, f.id)
+                          FavoritesStore.save(act)
+                          Toast.makeText(act, "已收藏到「${f.name}」", Toast.LENGTH_SHORT).show()
+                          onSaved(fav)
+                      }
+                      .setNegativeButton("取消", null)
+                      .show()
+              }
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/FavoritesActivity.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.annotation.SuppressLint
+          import android.app.Activity
+          import android.content.ClipData
+          import android.content.ClipboardManager
+          import android.content.Intent
+          import android.graphics.Color
+          import android.net.Uri
+          import android.os.Bundle
+          import android.view.LayoutInflater
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.ViewGroup
           import android.widget.Button
           import android.widget.TextView
           import android.widget.Toast
           import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AlertDialog
           import androidx.appcompat.app.AppCompatActivity
+          import androidx.appcompat.widget.PopupMenu
+          import androidx.recyclerview.widget.ItemTouchHelper
+          import androidx.recyclerview.widget.LinearLayoutManager
+          import androidx.recyclerview.widget.RecyclerView
+          import com.google.android.material.chip.Chip
+          import com.google.android.material.chip.ChipGroup
+          import java.text.SimpleDateFormat
+          import java.util.Collections
+          import java.util.Date
+          import java.util.Locale
 
           /**
-           * 設定導覽：一步一步帶使用者完成
-           * 1. 開啟開發人員選項  2. 選取模擬位置應用程式  3. 允許權限
-           * 每次回到此畫面都會自動檢查，完成的步驟會自動跳到下一步。
+           * 收藏清單：
+           *  - 上方資料夾分頁（點選切換、長按管理、最後一個「＋」新增）
+           *  - 按住「≡」拖拉調整順序
+           *  - 點一下座標 → 回主畫面並移到該點
+           *  - 分享 / 複製 / 匯出檔案 / 從剪貼簿或檔案匯入
            */
-          class SetupActivity : AppCompatActivity() {
+          class FavoritesActivity : AppCompatActivity() {
 
-              private class Step(
-                  val title: String,
-                  val body: String,
-                  val button: String,
-                  val isDone: () -> Boolean,
-                  val action: () -> Unit
-              )
+              companion object {
+                  const val EXTRA_CAND_LAT = "cand_lat"
+                  const val EXTRA_CAND_LNG = "cand_lng"
+                  const val RESULT_LAT = "lat"
+                  const val RESULT_LNG = "lng"
+                  const val RESULT_NAME = "name"
+                  private const val PREF_FOLDER = "fav_folder"
+              }
 
-              private lateinit var steps: List<Step>
-              private var index = 0
+              private lateinit var chips: ChipGroup
+              private lateinit var list: RecyclerView
+              private lateinit var tvEmpty: TextView
+              private lateinit var tvFolderInfo: TextView
+              private lateinit var adapter: FavAdapter
+              private lateinit var touchHelper: ItemTouchHelper
 
-              private lateinit var tvDots: TextView
-              private lateinit var tvStepNum: TextView
-              private lateinit var tvTitle: TextView
-              private lateinit var tvState: TextView
-              private lateinit var tvBody: TextView
-              private lateinit var btnAction: Button
-              private lateinit var btnBack: Button
-              private lateinit var btnNext: Button
+              private var folderId = FavoritesStore.DEFAULT_ID
+              private var candLat: Double? = null
+              private var candLng: Double? = null
 
-              private val permLauncher =
-                  registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-                      autoAdvance()
+              private val prefs by lazy { getSharedPreferences("walker", MODE_PRIVATE) }
+
+              private var pendingExport = ""
+              private val exportFile =
+                  registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+                      if (uri != null) writeFile(uri, pendingExport)
+                  }
+              private val importFile =
+                  registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                      if (uri != null) readFile(uri)?.let { confirmImport(it) }
                   }
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
-                  setContentView(R.layout.activity_setup)
+                  setContentView(R.layout.activity_favorites)
+                  FavoritesStore.load(this)
 
-                  tvDots = findViewById(R.id.tvDots)
-                  tvStepNum = findViewById(R.id.tvStepNum)
-                  tvTitle = findViewById(R.id.tvTitle)
-                  tvState = findViewById(R.id.tvState)
-                  tvBody = findViewById(R.id.tvBody)
-                  btnAction = findViewById(R.id.btnAction)
-                  btnBack = findViewById(R.id.btnBack)
-                  btnNext = findViewById(R.id.btnNext)
+                  chips = findViewById(R.id.chips)
+                  list = findViewById(R.id.list)
+                  tvEmpty = findViewById(R.id.tvEmpty)
+                  tvFolderInfo = findViewById(R.id.tvFolderInfo)
 
-                  steps = listOf(
-                      Step(
-                          title = "開啟開發人員選項",
-                          body = "1. 按下方「前往關於手機」\n\n" +
-                              "2. 找到「版本號碼」，連續點 7 次\n" +
-                              "　（OPPO / realme：關於本機 → 版本 → 版本號碼）\n" +
-                              "　（Samsung：軟體資訊 → 版本號碼）\n" +
-                              "　（小米：MIUI / HyperOS 版本）\n\n" +
-                              "3. 看到「你已處於開發人員模式」後，按返回鍵回到這裡",
-                          button = "前往關於手機",
-                          isDone = { SetupUtil.isDeveloperEnabled(this) },
-                          action = { SetupUtil.openAboutPhone(this) }
-                      ),
-                      Step(
-                          title = "選取模擬位置應用程式",
-                          body = "1. 按下方「設定」，會直接開啟「開發人員選項」\n\n" +
-                              "2. 找到「位置」區塊的「選取模擬位置應用程式」\n" +
-                              "　（部分手機會自動捲到這一列並標示出來）\n\n" +
-                              "3. 點進去，選擇「皮克敏散步助手」\n\n" +
-                              "4. 按返回鍵回到這裡，會自動檢查是否完成",
-                          button = "設定",
-                          isDone = { SetupUtil.isMockAppSelected(this) },
-                          action = { SetupUtil.openMockLocationSetting(this) }
-                      ),
-                      Step(
-                          title = "允許位置與通知權限",
-                          body = "按下方「允許權限」：\n\n" +
-                              "• 位置：選「使用應用程式時允許」，並保持「精確位置」開啟\n\n" +
-                              "• 通知：選「允許」，模擬時通知列會顯示狀態與「停止模擬」按鈕\n\n" +
-                              "建議另外到手機設定把本 App 的電池用量設為「不限制」，避免背景被關掉。",
-                          button = "允許權限",
-                          isDone = { SetupUtil.missingPermissions(this).isEmpty() },
-                          action = {
-                              val need = SetupUtil.missingPermissions(this)
-                              if (need.isNotEmpty()) permLauncher.launch(need)
-                          }
-                      )
-                  )
-
-                  index = firstUndone()
-
-                  btnAction.setOnClickListener { steps[index].action() }
-                  btnBack.setOnClickListener {
-                      if (index > 0) { index--; render() }
+                  if (intent.hasExtra(EXTRA_CAND_LAT)) {
+                      candLat = intent.getDoubleExtra(EXTRA_CAND_LAT, 0.0)
+                      candLng = intent.getDoubleExtra(EXTRA_CAND_LNG, 0.0)
                   }
-                  btnNext.setOnClickListener {
-                      if (index < steps.size - 1) {
-                          index++; render()
-                      } else {
-                          finishSetup()
+
+                  folderId = prefs.getString(PREF_FOLDER, FavoritesStore.DEFAULT_ID) ?: FavoritesStore.DEFAULT_ID
+                  if (FavoritesStore.folder(folderId) == null) folderId = FavoritesStore.DEFAULT_ID
+
+                  adapter = FavAdapter()
+                  list.layoutManager = LinearLayoutManager(this)
+                  list.adapter = adapter
+                  touchHelper = ItemTouchHelper(DragCallback(
+                      moveCb = { from, to -> adapter.move(from, to) },
+                      doneCb = {
+                          FavoritesStore.setOrder(folderId, adapter.items)
+                          FavoritesStore.save(this)
+                      }
+                  ))
+                  touchHelper.attachToRecyclerView(list)
+
+                  findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
+                  findViewById<Button>(R.id.btnImport).setOnClickListener { showImportMenu() }
+                  findViewById<Button>(R.id.btnExport).setOnClickListener { showExportMenu() }
+                  findViewById<Button>(R.id.btnNewFolder).setOnClickListener { newFolder() }
+
+                  val btnAdd = findViewById<Button>(R.id.btnAddHere)
+                  if (candLat == null) {
+                      btnAdd.text = "＋ 輸入座標收藏"
+                  }
+                  btnAdd.setOnClickListener { addHere() }
+
+                  rebuildChips()
+                  refreshList()
+
+                  // 別的 App（LINE、訊息…）分享文字給本 App → 直接匯入
+                  if (intent?.action == Intent.ACTION_SEND) {
+                      intent.getStringExtra(Intent.EXTRA_TEXT)?.let { confirmImport(it) }
+                  }
+              }
+
+              // ---------------- 資料夾分頁 ----------------
+
+              private fun rebuildChips() {
+                  chips.removeAllViews()
+                  for (f in FavoritesStore.folders) {
+                      val count = FavoritesStore.favsIn(f.id).size
+                      val chip = Chip(this).apply {
+                          id = View.generateViewId()
+                          text = "📁 ${f.name} ($count)"
+                          isCheckable = true
+                          isCheckedIconVisible = false
+                          isChecked = f.id == folderId
+                          setOnClickListener { selectFolder(f.id) }
+                          setOnLongClickListener { showFolderMenu(f, this); true }
+                      }
+                      chips.addView(chip)
+                  }
+                  val add = Chip(this).apply {
+                      text = "＋"
+                      isCheckable = false
+                      setOnClickListener { newFolder() }
+                  }
+                  chips.addView(add)
+              }
+
+              private fun selectFolder(id: String) {
+                  folderId = id
+                  prefs.edit().putString(PREF_FOLDER, id).apply()
+                  rebuildChips()
+                  refreshList()
+              }
+
+              private fun refreshList() {
+                  adapter.items = FavoritesStore.favsIn(folderId).toMutableList()
+                  adapter.notifyDataSetChanged()
+                  tvEmpty.visibility = if (adapter.items.isEmpty()) View.VISIBLE else View.GONE
+                  val name = FavoritesStore.folder(folderId)?.name ?: ""
+                  tvFolderInfo.text = "「$name」${adapter.items.size} 個座標　·　按住 ≡ 拖拉排序，長按資料夾可管理"
+              }
+
+              private fun newFolder() {
+                  FavoriteDialogs.input(this, "新增資料夾", "", "資料夾名稱（例：台南、日本）") { name ->
+                      if (name.isEmpty()) return@input
+                      val f = FavoritesStore.addFolder(name)
+                      FavoritesStore.save(this)
+                      selectFolder(f.id)
+                  }
+              }
+
+              private fun showFolderMenu(f: FavoritesStore.Folder, anchor: View) {
+                  val pm = PopupMenu(this, anchor)
+                  val isDefault = f.id == FavoritesStore.DEFAULT_ID
+                  pm.menu.add(0, 1, 0, "重新命名")
+                  pm.menu.add(0, 2, 1, "分享此資料夾")
+                  pm.menu.add(0, 3, 2, "複製此資料夾")
+                  pm.menu.add(0, 4, 3, "調整資料夾順序")
+                  if (!isDefault) pm.menu.add(0, 5, 4, "刪除資料夾")
+                  pm.setOnMenuItemClickListener {
+                      when (it.itemId) {
+                          1 -> FavoriteDialogs.input(this, "重新命名資料夾", f.name, "資料夾名稱") { n ->
+                              if (n.isNotEmpty()) { f.name = n; FavoritesStore.save(this); rebuildChips(); refreshList() }
+                          }
+                          2 -> share(FavoritesStore.exportText(listOf(f.id)))
+                          3 -> copy(FavoritesStore.exportText(listOf(f.id)))
+                          4 -> reorderFolders()
+                          5 -> deleteFolder(f)
+                      }
+                      true
+                  }
+                  pm.show()
+              }
+
+              private fun deleteFolder(f: FavoritesStore.Folder) {
+                  val n = FavoritesStore.favsIn(f.id).size
+                  val b = AlertDialog.Builder(this).setTitle("刪除「${f.name}」？")
+                  if (n == 0) {
+                      b.setPositiveButton("刪除") { _, _ -> doDeleteFolder(f.id, true) }
+                  } else {
+                      b.setMessage("資料夾內有 $n 個座標")
+                          .setPositiveButton("連座標一起刪除") { _, _ -> doDeleteFolder(f.id, false) }
+                          .setNeutralButton("座標移到未分類") { _, _ -> doDeleteFolder(f.id, true) }
+                  }
+                  b.setNegativeButton("取消", null).show()
+              }
+
+              private fun doDeleteFolder(id: String, keep: Boolean) {
+                  FavoritesStore.deleteFolder(id, keep)
+                  FavoritesStore.save(this)
+                  selectFolder(FavoritesStore.DEFAULT_ID)
+              }
+
+              /** 拖拉調整資料夾順序 */
+              @SuppressLint("ClickableViewAccessibility")
+              private fun reorderFolders() {
+                  val items = FavoritesStore.folders.toMutableList()
+                  val rv = RecyclerView(this)
+                  rv.layoutManager = LinearLayoutManager(this)
+                  lateinit var helper: ItemTouchHelper
+                  val ad = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+                      override fun onCreateViewHolder(p: ViewGroup, t: Int): RecyclerView.ViewHolder {
+                          val tv = TextView(this@FavoritesActivity).apply {
+                              textSize = 18f
+                              setPadding(dp(20), dp(14), dp(20), dp(14))
+                              layoutParams = RecyclerView.LayoutParams(-1, -2)
+                          }
+                          return object : RecyclerView.ViewHolder(tv) {}
+                      }
+                      override fun getItemCount() = items.size
+                      override fun onBindViewHolder(h: RecyclerView.ViewHolder, pos: Int) {
+                          (h.itemView as TextView).text = "≡     📁 ${items[pos].name}"
+                          h.itemView.setOnTouchListener { _, e ->
+                              if (e.actionMasked == MotionEvent.ACTION_DOWN) helper.startDrag(h)
+                              false
+                          }
                       }
                   }
-                  render()
+                  helper = ItemTouchHelper(DragCallback(
+                      moveCb = { from, to -> Collections.swap(items, from, to); ad.notifyItemMoved(from, to) },
+                      doneCb = {}
+                  ))
+                  rv.adapter = ad
+                  helper.attachToRecyclerView(rv)
+                  AlertDialog.Builder(this)
+                      .setTitle("按住拖拉調整資料夾順序")
+                      .setView(rv)
+                      .setPositiveButton("完成") { _, _ ->
+                          FavoritesStore.setFolderOrder(items)
+                          FavoritesStore.save(this)
+                          rebuildChips()
+                      }
+                      .setNegativeButton("取消", null)
+                      .show()
               }
+
+              // ---------------- 座標 ----------------
+
+              private fun addHere() {
+                  val lat = candLat
+                  val lng = candLng
+                  if (lat != null && lng != null) {
+                      FavoriteDialogs.addFavorite(this, lat, lng, folderId) { fav ->
+                          selectFolder(fav.folderId)
+                      }
+                      return
+                  }
+                  // 沒有目前位置 → 手動輸入座標
+                  FavoriteDialogs.input(this, "輸入座標", "", "緯度, 經度（可貼 Google 地圖座標）") { s ->
+                      val p = FavoritesStore.parseText(s).firstOrNull()?.items?.firstOrNull()
+                      if (p == null) { toast("座標格式錯誤，請輸入「緯度, 經度」"); return@input }
+                      FavoriteDialogs.addFavorite(this, p.second, p.third, folderId) { fav ->
+                          selectFolder(fav.folderId)
+                      }
+                  }
+              }
+
+              private fun pick(f: FavoritesStore.Fav) {
+                  setResult(Activity.RESULT_OK, Intent()
+                      .putExtra(RESULT_LAT, f.lat)
+                      .putExtra(RESULT_LNG, f.lng)
+                      .putExtra(RESULT_NAME, f.name))
+                  finish()
+              }
+
+              private fun showItemMenu(f: FavoritesStore.Fav, anchor: View) {
+                  val pm = PopupMenu(this, anchor)
+                  pm.menu.add(0, 1, 0, "在地圖上前往")
+                  pm.menu.add(0, 2, 1, "重新命名")
+                  pm.menu.add(0, 3, 2, "移到其他資料夾")
+                  pm.menu.add(0, 4, 3, "複製座標")
+                  pm.menu.add(0, 5, 4, "分享")
+                  pm.menu.add(0, 6, 5, "刪除")
+                  pm.setOnMenuItemClickListener {
+                      when (it.itemId) {
+                          1 -> pick(f)
+                          2 -> FavoriteDialogs.input(this, "重新命名", f.name, "名稱") { n ->
+                              if (n.isNotEmpty()) { f.name = n; FavoritesStore.save(this); refreshList() }
+                          }
+                          3 -> moveToFolder(f)
+                          4 -> copy(FavoritesStore.coordText(f.lat, f.lng), "已複製座標")
+                          5 -> share("${f.name}, ${FavoritesStore.coordText(f.lat, f.lng)}\n" +
+                              "https://maps.google.com/?q=${f.lat},${f.lng}")
+                          6 -> AlertDialog.Builder(this)
+                              .setTitle("刪除「${f.name}」？")
+                              .setPositiveButton("刪除") { _, _ ->
+                                  FavoritesStore.deleteFav(f.id); FavoritesStore.save(this)
+                                  rebuildChips(); refreshList()
+                              }
+                              .setNegativeButton("取消", null).show()
+                      }
+                      true
+                  }
+                  pm.show()
+              }
+
+              private fun moveToFolder(f: FavoritesStore.Fav) {
+                  val others = FavoritesStore.folders.filter { it.id != f.folderId }
+                  val labels = others.map { "📁 " + it.name } + "＋ 新資料夾…"
+                  AlertDialog.Builder(this)
+                      .setTitle("移到…")
+                      .setItems(labels.toTypedArray()) { _, i ->
+                          if (i < others.size) {
+                              FavoritesStore.moveToFolder(f, others[i].id)
+                              FavoritesStore.save(this); rebuildChips(); refreshList()
+                              toast("已移到「${others[i].name}」")
+                          } else {
+                              FavoriteDialogs.input(this, "新資料夾", "", "資料夾名稱") { n ->
+                                  if (n.isEmpty()) return@input
+                                  val nf = FavoritesStore.addFolder(n)
+                                  FavoritesStore.moveToFolder(f, nf.id)
+                                  FavoritesStore.save(this); rebuildChips(); refreshList()
+                                  toast("已移到「${nf.name}」")
+                              }
+                          }
+                      }
+                      .show()
+              }
+
+              // ---------------- 分享 / 匯出 / 匯入 ----------------
+
+              private fun showExportMenu() {
+                  val cur = FavoritesStore.folder(folderId)?.name ?: ""
+                  val opts = arrayOf(
+                      "分享「$cur」（LINE、訊息…）",
+                      "分享全部收藏",
+                      "複製「$cur」到剪貼簿",
+                      "複製全部收藏到剪貼簿",
+                      "匯出全部收藏成檔案"
+                  )
+                  AlertDialog.Builder(this)
+                      .setTitle("分享 / 匯出")
+                      .setItems(opts) { _, i ->
+                          val all = FavoritesStore.folders.map { it.id }
+                          when (i) {
+                              0 -> share(FavoritesStore.exportText(listOf(folderId)))
+                              1 -> share(FavoritesStore.exportText(all))
+                              2 -> copy(FavoritesStore.exportText(listOf(folderId)))
+                              3 -> copy(FavoritesStore.exportText(all))
+                              4 -> {
+                                  pendingExport = FavoritesStore.exportText(all)
+                                  val date = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+                                  exportFile.launch("皮克敏收藏_$date.txt")
+                              }
+                          }
+                      }
+                      .show()
+              }
+
+              private fun showImportMenu() {
+                  AlertDialog.Builder(this)
+                      .setTitle("匯入收藏")
+                      .setItems(arrayOf("從剪貼簿貼上", "從檔案匯入", "格式說明")) { _, i ->
+                          when (i) {
+                              0 -> {
+                                  val cm = getSystemService(ClipboardManager::class.java)
+                                  val text = cm.primaryClip?.takeIf { it.itemCount > 0 }
+                                      ?.getItemAt(0)?.coerceToText(this)?.toString()
+                                  if (text.isNullOrBlank()) toast("剪貼簿是空的") else confirmImport(text)
+                              }
+                              1 -> importFile.launch(arrayOf("text/*", "application/octet-stream"))
+                              2 -> AlertDialog.Builder(this)
+                                  .setTitle("匯入格式")
+                                  .setMessage("每行一個座標：\n名稱, 緯度, 經度\n\n" +
+                                      "以「📁」或「#」開頭的行是資料夾，例如：\n\n" +
+                                      "📁 台南\n赤崁樓, 22.997480, 120.202560\n安平古堡, 23.001500, 120.160600\n\n" +
+                                      "也可以只寫「緯度, 經度」。\n別人從本 App 分享給你的文字，直接複製後按「從剪貼簿貼上」即可。")
+                                  .setPositiveButton("知道了", null).show()
+                          }
+                      }
+                      .show()
+              }
+
+              private fun confirmImport(text: String) {
+                  val parsed = FavoritesStore.parseText(text)
+                  val count = parsed.sumOf { it.items.size }
+                  if (count == 0) {
+                      toast("找不到座標。格式：名稱, 緯度, 經度")
+                      return
+                  }
+                  val detail = parsed.joinToString("\n") { "📁 ${it.name}：${it.items.size} 個" }
+                  AlertDialog.Builder(this)
+                      .setTitle("匯入 $count 個座標？")
+                      .setMessage(detail + "\n\n同名資料夾會合併在一起。")
+                      .setPositiveButton("匯入") { _, _ ->
+                          val first = FavoritesStore.importParsed(parsed)
+                          FavoritesStore.save(this)
+                          toast("已匯入 $count 個座標")
+                          selectFolder(first ?: folderId)
+                      }
+                      .setNegativeButton("取消", null)
+                      .show()
+              }
+
+              private fun share(text: String) {
+                  val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+                  startActivity(Intent.createChooser(i, "分享收藏"))
+              }
+
+              private fun copy(text: String, msg: String = "已複製，可貼給朋友；對方在「匯入 → 從剪貼簿貼上」即可") {
+                  getSystemService(ClipboardManager::class.java)
+                      .setPrimaryClip(ClipData.newPlainText("皮克敏收藏", text))
+                  Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+              }
+
+              private fun writeFile(uri: Uri, text: String) {
+                  try {
+                      contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                      toast("已匯出")
+                  } catch (e: Exception) {
+                      toast("匯出失敗：${e.message}")
+                  }
+              }
+
+              private fun readFile(uri: Uri): String? = try {
+                  contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+              } catch (e: Exception) {
+                  toast("讀取失敗：${e.message}"); null
+              }
+
+              private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+              // ---------------- 清單 Adapter ----------------
+
+              private inner class VH(v: View) : RecyclerView.ViewHolder(v) {
+                  val handle: TextView = v.findViewById(R.id.handle)
+                  val name: TextView = v.findViewById(R.id.tvName)
+                  val coord: TextView = v.findViewById(R.id.tvCoord)
+                  val more: TextView = v.findViewById(R.id.btnMore)
+              }
+
+              private inner class FavAdapter : RecyclerView.Adapter<VH>() {
+                  var items = mutableListOf<FavoritesStore.Fav>()
+
+                  override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
+                      VH(LayoutInflater.from(parent.context).inflate(R.layout.item_favorite, parent, false))
+
+                  override fun getItemCount() = items.size
+
+                  @SuppressLint("ClickableViewAccessibility")
+                  override fun onBindViewHolder(h: VH, position: Int) {
+                      val f = items[position]
+                      h.name.text = f.name
+                      h.coord.text = FavoritesStore.coordText(f.lat, f.lng)
+                      h.itemView.setOnClickListener { pick(f) }
+                      h.more.setOnClickListener { showItemMenu(f, h.more) }
+                      h.handle.setOnTouchListener { _, e ->
+                          if (e.actionMasked == MotionEvent.ACTION_DOWN) touchHelper.startDrag(h)
+                          false
+                      }
+                  }
+
+                  fun move(from: Int, to: Int) {
+                      if (from < 0 || to < 0) return
+                      val moved = items.removeAt(from)
+                      items.add(to, moved)
+                      notifyItemMoved(from, to)
+                  }
+              }
+
+              /** 上下拖拉的共用設定；也可以長按整列拖拉 */
+              private class DragCallback(
+                  private val moveCb: (Int, Int) -> Unit,
+                  private val doneCb: () -> Unit
+              ) : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
+
+                  override fun onMove(
+                      rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder
+                  ): Boolean {
+                      moveCb(vh.bindingAdapterPosition, target.bindingAdapterPosition)
+                      return true
+                  }
+
+                  override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {}
+
+                  override fun onSelectedChanged(vh: RecyclerView.ViewHolder?, actionState: Int) {
+                      super.onSelectedChanged(vh, actionState)
+                      if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                          vh?.itemView?.alpha = 0.85f
+                          vh?.itemView?.elevation = 12f
+                          vh?.itemView?.setBackgroundColor(Color.parseColor("#E8F5E9"))
+                      }
+                  }
+
+                  override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
+                      super.clearView(rv, vh)
+                      vh.itemView.alpha = 1f
+                      vh.itemView.elevation = 0f
+                      if (vh.itemView.id != View.NO_ID || vh.itemView.findViewById<View>(R.id.tvName) != null) {
+                          vh.itemView.setBackgroundResource(R.drawable.bg_fav_item)
+                      } else {
+                          vh.itemView.setBackgroundColor(Color.TRANSPARENT)
+                      }
+                      doneCb()
+                  }
+              }
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/FavoritesStore.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.content.Context
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.File
+          import java.util.Locale
+          import java.util.UUID
+
+          /**
+           * 收藏座標的資料與存檔。
+           * folders 的順序 = 資料夾顯示順序；favs 在同一資料夾內的先後順序 = 座標顯示順序。
+           */
+          object FavoritesStore {
+
+              class Folder(val id: String, var name: String)
+              class Fav(val id: String, var name: String, var lat: Double, var lng: Double, var folderId: String)
+
+              /** 解析分享文字後的結果 */
+              class ParsedFolder(val name: String, val items: MutableList<Triple<String, Double, Double>>)
+
+              const val DEFAULT_ID = "default"
+              const val DEFAULT_NAME = "未分類"
+              private const val FILE = "favorites.json"
+
+              val folders = mutableListOf<Folder>()
+              val favs = mutableListOf<Fav>()
+              private var loaded = false
+
+              // ---------------- 讀寫 ----------------
+
+              fun load(ctx: Context) {
+                  if (loaded) return
+                  loaded = true
+                  folders.clear(); favs.clear()
+                  try {
+                      val f = File(ctx.filesDir, FILE)
+                      if (f.exists()) {
+                          val root = JSONObject(f.readText())
+                          val fa = root.optJSONArray("folders") ?: JSONArray()
+                          for (i in 0 until fa.length()) {
+                              val o = fa.getJSONObject(i)
+                              folders.add(Folder(o.getString("id"), o.getString("name")))
+                          }
+                          val va = root.optJSONArray("favs") ?: JSONArray()
+                          for (i in 0 until va.length()) {
+                              val o = va.getJSONObject(i)
+                              favs.add(Fav(o.getString("id"), o.getString("name"),
+                                  o.getDouble("lat"), o.getDouble("lng"), o.getString("folder")))
+                          }
+                      }
+                  } catch (_: Exception) {
+                  }
+                  if (folders.none { it.id == DEFAULT_ID }) folders.add(0, Folder(DEFAULT_ID, DEFAULT_NAME))
+                  // 資料夾不存在的座標放回未分類
+                  val ids = folders.map { it.id }.toSet()
+                  favs.filter { it.folderId !in ids }.forEach { it.folderId = DEFAULT_ID }
+              }
+
+              fun save(ctx: Context) {
+                  try {
+                      val root = JSONObject()
+                      root.put("folders", JSONArray().apply {
+                          folders.forEach { put(JSONObject().put("id", it.id).put("name", it.name)) }
+                      })
+                      root.put("favs", JSONArray().apply {
+                          favs.forEach {
+                              put(JSONObject().put("id", it.id).put("name", it.name)
+                                  .put("lat", it.lat).put("lng", it.lng).put("folder", it.folderId))
+                          }
+                      })
+                      File(ctx.filesDir, FILE).writeText(root.toString())
+                  } catch (_: Exception) {
+                  }
+              }
+
+              // ---------------- 資料夾 ----------------
+
+              fun folder(id: String): Folder? = folders.firstOrNull { it.id == id }
+
+              /** 新增資料夾；同名已存在就直接回傳那個 */
+              fun addFolder(name: String): Folder {
+                  val n = name.trim().ifEmpty { "新資料夾" }
+                  folders.firstOrNull { it.name == n }?.let { return it }
+                  return Folder(UUID.randomUUID().toString(), n).also { folders.add(it) }
+              }
+
+              /** 刪除資料夾；keepItems=true 時把座標移到未分類 */
+              fun deleteFolder(id: String, keepItems: Boolean) {
+                  if (id == DEFAULT_ID) return
+                  if (keepItems) favs.filter { it.folderId == id }.forEach { it.folderId = DEFAULT_ID }
+                  else favs.removeAll { it.folderId == id }
+                  folders.removeAll { it.id == id }
+              }
+
+              fun setFolderOrder(ordered: List<Folder>) {
+                  folders.clear(); folders.addAll(ordered)
+              }
+
+              // ---------------- 座標 ----------------
+
+              fun favsIn(folderId: String): List<Fav> = favs.filter { it.folderId == folderId }
+
+              fun addFav(name: String, lat: Double, lng: Double, folderId: String): Fav {
+                  val n = name.trim().ifEmpty { defaultName(lat, lng) }
+                  return Fav(UUID.randomUUID().toString(), n, lat, lng, folderId).also { favs.add(it) }
+              }
+
+              fun deleteFav(id: String) { favs.removeAll { it.id == id } }
+
+              /** 移到其他資料夾（放在該資料夾最後面） */
+              fun moveToFolder(fav: Fav, folderId: String) {
+                  favs.remove(fav)
+                  fav.folderId = folderId
+                  favs.add(fav)
+              }
+
+              /** 依拖拉後的順序重排某資料夾內的座標 */
+              fun setOrder(folderId: String, ordered: List<Fav>) {
+                  favs.removeAll { it.folderId == folderId }
+                  favs.addAll(ordered)
+              }
+
+              fun defaultName(lat: Double, lng: Double) =
+                  String.format(Locale.US, "座標 %.5f, %.5f", lat, lng)
+
+              fun coordText(lat: Double, lng: Double) =
+                  String.format(Locale.US, "%.6f, %.6f", lat, lng)
+
+              // ---------------- 匯出 / 分享文字 ----------------
+
+              /**
+               * 產生人看得懂、也能被本 App 匯入的文字：
+               *   【皮克敏散步助手 收藏】
+               *   📁 資料夾名稱
+               *   地點名稱, 緯度, 經度
+               */
+              fun exportText(folderIds: List<String>): String = buildString {
+                  append("【皮克敏散步助手 收藏】\n")
+                  for (fid in folderIds) {
+                      val f = folder(fid) ?: continue
+                      append("\n📁 ").append(f.name).append('\n')
+                      for (v in favsIn(fid)) {
+                          append(v.name.replace("\n", " ")).append(", ")
+                              .append(coordText(v.lat, v.lng)).append('\n')
+                      }
+                  }
+              }
+
+              private val coordRegex =
+                  Regex("""(-?\d{1,3}(?:\.\d+)?)\s*[,，、\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$""")
+
+              /**
+               * 解析分享文字。支援：
+               *  - 「📁 名稱」或「# 名稱」開頭的行 = 資料夾
+               *  - 「名稱, 緯度, 經度」或只有「緯度, 經度」
+               * 第一個資料夾標題之前的座標會放到「未分類」
+               */
+              fun parseText(text: String): List<ParsedFolder> {
+                  val result = mutableListOf<ParsedFolder>()
+                  var cur: ParsedFolder? = null
+                  for (raw in text.lines()) {
+                      val line = raw.trim()
+                      if (line.isEmpty() || line.startsWith("【")) continue
+                      val header = when {
+                          line.startsWith("📁") -> line.removePrefix("📁").trim()
+                          line.startsWith("#") -> line.trimStart('#').trim()
+                          else -> null
+                      }
+                      if (header != null) {
+                          cur = result.firstOrNull { it.name == header }
+                              ?: ParsedFolder(header.ifEmpty { "匯入" }, mutableListOf()).also { result.add(it) }
+                          continue
+                      }
+                      val m = coordRegex.find(line) ?: continue
+                      val lat = m.groupValues[1].toDoubleOrNull() ?: continue
+                      val lng = m.groupValues[2].toDoubleOrNull() ?: continue
+                      if (lat !in -90.0..90.0 || lng !in -180.0..180.0) continue
+                      val name = line.substring(0, m.range.first).trim().trimEnd(',', '，', '：', ':', '、').trim()
+                      val target = cur ?: (result.firstOrNull { it.name == DEFAULT_NAME }
+                          ?: ParsedFolder(DEFAULT_NAME, mutableListOf()).also { result.add(0, it) })
+                      target.items.add(Triple(name.ifEmpty { defaultName(lat, lng) }, lat, lng))
+                  }
+                  return result.filter { it.items.isNotEmpty() }
+              }
+
+              /** 匯入解析結果；同名資料夾會合併。回傳第一個匯入的資料夾 id */
+              fun importParsed(parsed: List<ParsedFolder>): String? {
+                  var first: String? = null
+                  for (pf in parsed) {
+                      val f = if (pf.name == DEFAULT_NAME) folder(DEFAULT_ID)!! else addFolder(pf.name)
+                      if (first == null) first = f.id
+                      for ((n, lat, lng) in pf.items) addFav(n, lat, lng, f.id)
+                  }
+                  return first
+              }
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/MainActivity.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.Manifest
+          import android.annotation.SuppressLint
+          import android.app.AppOpsManager
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.graphics.Bitmap
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
+          import android.graphics.drawable.BitmapDrawable
+          import android.location.Location
+          import android.location.LocationListener
+          import android.location.LocationManager
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.Looper
+          import android.os.SystemClock
+          import android.os.Process
+          import android.provider.Settings
+          import android.view.View
+          import android.widget.Button
+          import android.widget.CheckBox
+          import android.widget.EditText
+          import android.widget.TextView
+          import android.widget.Toast
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AlertDialog
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.content.ContextCompat
+          import androidx.lifecycle.Lifecycle
+          import androidx.lifecycle.lifecycleScope
+          import androidx.lifecycle.repeatOnLifecycle
+          import com.google.android.material.button.MaterialButtonToggleGroup
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import kotlinx.coroutines.flow.combine
+          import kotlinx.coroutines.launch
+          import org.osmdroid.config.Configuration
+          import org.osmdroid.events.MapEventsReceiver
+          import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+          import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+          import org.osmdroid.util.MapTileIndex
+          import org.osmdroid.util.GeoPoint
+          import org.osmdroid.views.MapView
+          import org.osmdroid.views.overlay.MapEventsOverlay
+          import org.osmdroid.views.overlay.Marker
+          import org.osmdroid.views.overlay.Polyline
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var map: MapView
+              private lateinit var tvStatus: TextView
+              private lateinit var tvHint: TextView
+              private lateinit var etCoord: EditText
+              private lateinit var etSpeed: EditText
+              private lateinit var cbLoop: CheckBox
+              private lateinit var btnPrimary: Button
+              private lateinit var btnPause: Button
+              private lateinit var rowRoute: View
+
+              private var routeMode = false
+              private var jumpTarget: GeoPoint? = null
+              private var jumpMarker: Marker? = null
+              private var meMarker: Marker? = null
+              private val waypoints = mutableListOf<GeoPoint>()
+              private val waypointMarkers = mutableListOf<Marker>()
+              private lateinit var routeLine: Polyline
+              private var firstFix = true
+              private lateinit var btnLayer: Button
+
+              // ---- 沒模擬時：顯示真實 GPS ----
+              private val lm by lazy { getSystemService(Context.LOCATION_SERVICE) as LocationManager }
+              private val realText = MutableStateFlow("")
+              private var realLoc: Location? = null
+              private var realMarker: Marker? = null
+              private var listeningReal = false
+              private var firstRealFix = true
+              private val realListener = object : LocationListener {
+                  override fun onLocationChanged(location: Location) { onRealLocation(location) }
+                  override fun onProviderEnabled(provider: String) {}
+                  override fun onProviderDisabled(provider: String) {}
+                  @Deprecated("Deprecated in Java")
+                  @Suppress("DEPRECATION")
+                  override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+              }
+
+              /** 可切換的地圖來源（都不需要 API key） */
+              private val tileSources by lazy {
+                  listOf(
+                      "街道圖" to EsriTileSource("EsriStreet", "World_Street_Map"),
+                      "衛星圖" to EsriTileSource("EsriImagery", "World_Imagery"),
+                      "OSM" to TileSourceFactory.MAPNIK
+                  )
+              }
+              private var tileIdx = 0
+
+              /** Esri 圖磚網址是 z/y/x 順序 */
+              private class EsriTileSource(name: String, service: String) : OnlineTileSourceBase(
+                  name, 0, 19, 256, "",
+                  arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/$service/MapServer/tile/"),
+                  "Esri"
+              ) {
+                  override fun getTileURLString(pMapTileIndex: Long): String =
+                      baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" +
+                          MapTileIndex.getY(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex)
+              }
+
+              private fun applyTiles() {
+                  map.setTileSource(tileSources[tileIdx].second)
+                  btnLayer.text = tileSources[tileIdx].first
+                  map.invalidate()
+              }
+
+              private val prefs by lazy { getSharedPreferences("walker", Context.MODE_PRIVATE) }
+
+              private val permLauncher =
+                  registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+
+              /** 從收藏清單選了一個點 → 移到那裡（瞬移模式設為目的地；路線模式加為路線點） */
+              private val favLauncher =
+                  registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+                      val data = r.data ?: return@registerForActivityResult
+                      if (r.resultCode != RESULT_OK || !data.hasExtra(FavoritesActivity.RESULT_LAT)) return@registerForActivityResult
+                      val p = GeoPoint(
+                          data.getDoubleExtra(FavoritesActivity.RESULT_LAT, 0.0),
+                          data.getDoubleExtra(FavoritesActivity.RESULT_LNG, 0.0)
+                      )
+                      map.controller.animateTo(p)
+                      onMapTap(p)
+                      val name = data.getStringExtra(FavoritesActivity.RESULT_NAME) ?: ""
+                      toast(if (routeMode) "已加入路線點：$name" else "目的地：$name，按「移動到這裡」即可前往")
+                  }
+
+              private fun openFavorites() {
+                  val i = Intent(this, FavoritesActivity::class.java)
+                  // 給收藏頁一個「目前位置」：目的地 > 模擬位置 > 真實 GPS
+                  val mock = MockState.current.value
+                  val real = realLoc
+                  val cand: Pair<Double, Double>? = when {
+                      !routeMode && jumpTarget != null -> jumpTarget!!.latitude to jumpTarget!!.longitude
+                      mock != null -> mock.lat to mock.lng
+                      real != null -> real.latitude to real.longitude
+                      else -> null
+                  }
+                  if (cand != null) {
+                      i.putExtra(FavoritesActivity.EXTRA_CAND_LAT, cand.first)
+                      i.putExtra(FavoritesActivity.EXTRA_CAND_LNG, cand.second)
+                  }
+                  favLauncher.launch(i)
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  Configuration.getInstance().load(this, prefs)
+                  Configuration.getInstance().userAgentValue = "PikminWalker/1.0 (+https://github.com/weihan06/PikminWalker)"
+                  setContentView(R.layout.activity_main)
+
+                  map = findViewById(R.id.map)
+                  tvStatus = findViewById(R.id.tvStatus)
+                  tvHint = findViewById(R.id.tvHint)
+                  etCoord = findViewById(R.id.etCoord)
+                  etSpeed = findViewById(R.id.etSpeed)
+                  cbLoop = findViewById(R.id.cbLoop)
+                  btnPrimary = findViewById(R.id.btnPrimary)
+                  btnPause = findViewById(R.id.btnPause)
+                  rowRoute = findViewById(R.id.rowRoute)
+                  btnLayer = findViewById(R.id.btnLayer)
+
+                  setupMap()
+                  setupButtons()
+                  // 第一次使用或設定沒完成時，自動開啟設定導覽
+                  if (savedInstanceState == null && !SetupUtil.allDone(this)) openSetupGuide()
+                  // 點上方狀態列可隨時重新開啟設定導覽
+                  tvStatus.setOnClickListener { openSetupGuide() }
+                  observeState()
+              }
+
+              // ---------------- 地圖 ----------------
+
+              private fun setupMap() {
+                  tileIdx = prefs.getInt("tile_idx", 0).coerceIn(0, tileSources.size - 1)
+                  applyTiles()
+                  map.setMultiTouchControls(true)
+                  map.zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
+                  map.controller.setZoom(17.0)
+                  // 預設：上次位置，沒有就台南火車站
+                  val lat = prefs.getFloat("last_lat", 22.9971f).toDouble()
+                  val lng = prefs.getFloat("last_lng", 120.2128f).toDouble()
+                  map.controller.setCenter(GeoPoint(lat, lng))
+
+                  routeLine = Polyline(map).apply {
+                      outlinePaint.color = Color.parseColor("#2E7D32")
+                      outlinePaint.strokeWidth = 10f
+                  }
+                  map.overlays.add(routeLine)
+
+                  val receiver = object : MapEventsReceiver {
+                      override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
+                          onMapTap(p); return true
+                      }
+                      override fun longPressHelper(p: GeoPoint): Boolean {
+                          // 長按地圖 → 收藏這個點
+                          FavoriteDialogs.addFavorite(this@MainActivity, p.latitude, p.longitude) { }
+                          return true
+                      }
+                  }
+                  map.overlays.add(0, MapEventsOverlay(receiver))
+              }
+
+              private fun onMapTap(p: GeoPoint) {
+                  if (routeMode) addWaypoint(p) else setJumpTarget(p)
+              }
+
+              private fun setJumpTarget(p: GeoPoint) {
+                  jumpTarget = p
+                  if (jumpMarker == null) {
+                      jumpMarker = Marker(map).apply {
+                          icon = labelIcon("★", Color.parseColor("#F9A825"))
+                          setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                          isDraggable = true
+                          setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                              override fun onMarkerDrag(m: Marker) {}
+                              override fun onMarkerDragStart(m: Marker) {}
+                              override fun onMarkerDragEnd(m: Marker) { jumpTarget = m.position; updateHint() }
+                          })
+                      }
+                      map.overlays.add(jumpMarker)
+                  }
+                  jumpMarker!!.position = p
+                  updateHint()
+                  map.invalidate()
+              }
+
+              private fun addWaypoint(p: GeoPoint) {
+                  waypoints.add(p)
+                  val idx = waypoints.size - 1
+                  val m = Marker(map).apply {
+                      position = p
+                      icon = labelIcon(letter(idx), Color.parseColor("#1565C0"))
+                      setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                      isDraggable = true
+                      setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                          override fun onMarkerDrag(m: Marker) {}
+                          override fun onMarkerDragStart(m: Marker) {}
+                          override fun onMarkerDragEnd(m: Marker) {
+                              val i = waypointMarkers.indexOf(m)
+                              if (i >= 0) { waypoints[i] = m.position; redrawRoute() }
+                          }
+                      })
+                  }
+                  waypointMarkers.add(m)
+                  map.overlays.add(m)
+                  redrawRoute()
+              }
+
+              private fun redrawRoute() {
+                  routeLine.setPoints(waypoints.toList())
+                  updateHint()
+                  map.invalidate()
+              }
+
+              private fun clearRoute() {
+                  waypointMarkers.forEach { map.overlays.remove(it) }
+                  waypointMarkers.clear()
+                  waypoints.clear()
+                  redrawRoute()
+              }
+
+              private fun undoWaypoint() {
+                  if (waypoints.isEmpty()) return
+                  map.overlays.remove(waypointMarkers.removeAt(waypointMarkers.size - 1))
+                  waypoints.removeAt(waypoints.size - 1)
+                  redrawRoute()
+              }
+
+              // ---------------- 按鈕 ----------------
+
+              private fun setupButtons() {
+                  findViewById<MaterialButtonToggleGroup>(R.id.toggleMode)
+                      .addOnButtonCheckedListener { _, id, checked ->
+                          if (!checked) return@addOnButtonCheckedListener
+                          routeMode = id == R.id.btnModeRoute
+                          rowRoute.visibility = if (routeMode) View.VISIBLE else View.GONE
+                          btnPrimary.text = if (routeMode) "開始走" else "移動到這裡"
+                          jumpMarker?.setVisible(!routeMode)
+                          updateHint()
+                          map.invalidate()
+                      }
+
+                  btnPrimary.setOnClickListener { if (routeMode) startRoute() else teleport() }
+
+                  btnPause.setOnClickListener {
+                      if (!MockState.walking.value) {
+                          toast("目前沒有在走路線"); return@setOnClickListener
+                      }
+                      sendToService(if (MockState.paused.value) MockLocationService.ACTION_RESUME
+                                    else MockLocationService.ACTION_PAUSE)
+                  }
+
+                  findViewById<Button>(R.id.btnStop).setOnClickListener {
+                      if (MockState.current.value != null) sendToService(MockLocationService.ACTION_STOP)
+                  }
+
+                  findViewById<Button>(R.id.btnLocate).setOnClickListener {
+                      val mock = MockState.current.value
+                      val real = realLoc
+                      when {
+                          mock != null -> map.controller.animateTo(GeoPoint(mock.lat, mock.lng))
+                          real != null -> map.controller.animateTo(GeoPoint(real.latitude, real.longitude))
+                          else -> toast("還沒抓到 GPS 位置")
+                      }
+                  }
+
+                  findViewById<Button>(R.id.btnGo).setOnClickListener { goToTypedCoord() }
+                  findViewById<Button>(R.id.btnFav).setOnClickListener { openFavorites() }
+                  btnLayer.setOnClickListener {
+                      tileIdx = (tileIdx + 1) % tileSources.size
+                      prefs.edit().putInt("tile_idx", tileIdx).apply()
+                      applyTiles()
+                  }
+                  findViewById<Button>(R.id.btnUndo).setOnClickListener { undoWaypoint() }
+                  findViewById<Button>(R.id.btnClear).setOnClickListener { clearRoute() }
+              }
+
+              /** 解析「22.99, 120.21」這類座標（可直接貼 Google 地圖複製的座標） */
+              private fun goToTypedCoord() {
+                  val parts = etCoord.text.toString()
+                      .replace("(", "").replace(")", "")
+                      .split(",", " ", "，").filter { it.isNotBlank() }
+                  val lat = parts.getOrNull(0)?.toDoubleOrNull()
+                  val lng = parts.getOrNull(1)?.toDoubleOrNull()
+                  if (lat == null || lng == null || lat !in -90.0..90.0 || lng !in -180.0..180.0) {
+                      toast("座標格式錯誤，請輸入「緯度, 經度」"); return
+                  }
+                  val p = GeoPoint(lat, lng)
+                  map.controller.animateTo(p)
+                  onMapTap(p)
+              }
+
+              private fun teleport() {
+                  val t = jumpTarget ?: run { toast("請先在地圖上點選目的地"); return }
+                  if (!checkReady()) return
+                  val cur = MockState.current.value
+                  if (cur != null) {
+                      val d = dist(cur.lat, cur.lng, t.latitude, t.longitude)
+                      if (d > 2000) toast("距離 %.1f km，大距離瞬移建議等一段時間再操作遊戲".format(d / 1000))
+                  }
+                  startService(Intent(this, MockLocationService::class.java).apply {
+                      action = MockLocationService.ACTION_TELEPORT
+                      putExtra(MockLocationService.EXTRA_LAT, t.latitude)
+                      putExtra(MockLocationService.EXTRA_LNG, t.longitude)
+                  }, foreground = true)
+              }
+
+              private fun startRoute() {
+                  if (waypoints.size < 2) { toast("請至少在地圖上點兩個點（A → B）"); return }
+                  val speed = etSpeed.text.toString().toDoubleOrNull()
+                  if (speed == null || speed <= 0) { toast("請輸入速度"); return }
+                  if (speed > 10) toast("提醒：皮克敏一般認為時速超過約 10 km/h 步數不會計算")
+                  if (!checkReady()) return
+                  startService(Intent(this, MockLocationService::class.java).apply {
+                      action = MockLocationService.ACTION_ROUTE
+                      putExtra(MockLocationService.EXTRA_LATS, waypoints.map { it.latitude }.toDoubleArray())
+                      putExtra(MockLocationService.EXTRA_LNGS, waypoints.map { it.longitude }.toDoubleArray())
+                      putExtra(MockLocationService.EXTRA_SPEED_KMH, speed)
+                      putExtra(MockLocationService.EXTRA_LOOP, cbLoop.isChecked)
+                  }, foreground = true)
+              }
+
+              private fun sendToService(action: String) {
+                  startService(Intent(this, MockLocationService::class.java).setAction(action), foreground = false)
+              }
+
+              private fun startService(i: Intent, foreground: Boolean) {
+                  if (foreground) ContextCompat.startForegroundService(this, i) else startService(i)
+              }
+
+              // ---------------- 狀態顯示 ----------------
+
+              private fun observeState() {
+                  lifecycleScope.launch {
+                      repeatOnLifecycle(Lifecycle.State.STARTED) {
+                          launch {
+                              MockState.current.collect { pos ->
+                                  if (pos == null) {
+                                      meMarker?.let { map.overlays.remove(it) }
+                                      meMarker = null
+                                      firstFix = true
+                                      startRealGps()
+                                  } else {
+                                      stopRealGps()
+                                      val gp = GeoPoint(pos.lat, pos.lng)
+                                      if (meMarker == null) {
+                                          meMarker = Marker(map).apply {
+                                              icon = labelIcon("我", Color.parseColor("#C62828"))
+                                              setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                                              infoWindow = null
+                                          }
+                                          map.overlays.add(meMarker)
+                                      }
+                                      meMarker!!.position = gp
+                                      if (firstFix) { map.controller.animateTo(gp); firstFix = false }
+                                      prefs.edit().putFloat("last_lat", pos.lat.toFloat())
+                                          .putFloat("last_lng", pos.lng.toFloat()).apply()
+                                  }
+                                  map.invalidate()
+                              }
+                          }
+                          launch {
+                              combine(MockState.status, MockState.current, MockState.remainingMeters,
+                                  MockState.walking, realText) { s, c, r, w, real ->
+                                  buildString {
+                                      append(s)
+                                      if (c != null) append("\n目前：%.6f, %.6f".format(c.lat, c.lng))
+                                      else if (real.isNotEmpty()) append("\n").append(real)
+                                      if (w && r > 0) append("\n剩餘 %.0f 公尺".format(r))
+                                  }
+                              }.collect { tvStatus.text = it }
+                          }
+                          launch {
+                              MockState.paused.collect { btnPause.text = if (it) "繼續" else "暫停" }
+                          }
+                      }
+                  }
+              }
+
+              private fun updateHint() {
+                  tvHint.text = if (routeMode) {
+                      if (waypoints.size < 2) {
+                          "點地圖依序加入路線點（A、B、C、D…），可拖曳點調整位置"
+                      } else {
+                          var total = 0.0
+                          for (i in 0 until waypoints.size - 1) {
+                              total += dist(waypoints[i].latitude, waypoints[i].longitude,
+                                  waypoints[i + 1].latitude, waypoints[i + 1].longitude)
+                          }
+                          val speed = etSpeed.text.toString().toDoubleOrNull() ?: 5.0
+                          val min = total / 1000 / speed * 60
+                          "共 %d 點，全長 %.2f km，約 %.0f 分鐘（%.1f km/h）".format(waypoints.size, total / 1000, min, speed)
+                      }
+                  } else {
+                      jumpTarget?.let { "目的地：%.6f, %.6f".format(it.latitude, it.longitude) }
+                          ?: "點地圖選擇目的地，再按「移動到這裡」；長按地圖可收藏"
+                  }
+              }
+
+              // ---------------- 真實 GPS（沒模擬時顯示） ----------------
+
+              @SuppressLint("MissingPermission")
+              private fun startRealGps() {
+                  if (listeningReal || MockState.current.value != null) return
+                  if (!SetupUtil.hasLocationPermission(this)) {
+                      realText.value = "真實 GPS：尚未允許位置權限"
+                      return
+                  }
+                  listeningReal = true
+                  if (realLoc == null) realText.value = "真實 GPS：定位中…"
+                  // 先用最後已知位置快速顯示
+                  for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+                      try { lm.getLastKnownLocation(p)?.let { onRealLocation(it) } } catch (_: Exception) {}
+                  }
+                  for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+                      try {
+                          if (lm.isProviderEnabled(p)) {
+                              lm.requestLocationUpdates(p, 2000L, 0f, realListener, Looper.getMainLooper())
+                          }
+                      } catch (_: Exception) {}
+                  }
+                  if (!lm.isProviderEnabled(LocationManager.GPS_PROVIDER) &&
+                      !lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                      realText.value = "真實 GPS：手機定位功能已關閉"
+                  }
+              }
+
+              private fun stopRealGps() {
+                  if (listeningReal) {
+                      try { lm.removeUpdates(realListener) } catch (_: Exception) {}
+                      listeningReal = false
+                  }
+                  realMarker?.let { map.overlays.remove(it) }
+                  realMarker = null
+                  realText.value = ""
+              }
+
+              private fun onRealLocation(loc: Location) {
+                  if (MockState.current.value != null) return
+                  // 忽略模擬出來的位置
+                  val isMock = if (Build.VERSION.SDK_INT >= 31) loc.isMock else {
+                      @Suppress("DEPRECATION") loc.isFromMockProvider
+                  }
+                  if (isMock) return
+                  // 有 10 秒內的 GPS 定位時，不要被較不準的網路定位蓋掉
+                  val prev = realLoc
+                  if (prev != null && prev.provider == LocationManager.GPS_PROVIDER &&
+                      loc.provider != LocationManager.GPS_PROVIDER &&
+                      (loc.elapsedRealtimeNanos - prev.elapsedRealtimeNanos) < 10_000_000_000L) return
+
+                  realLoc = loc
+                  val ageSec = (SystemClock.elapsedRealtimeNanos() - loc.elapsedRealtimeNanos) / 1_000_000_000L
+                  val src = if (loc.provider == LocationManager.GPS_PROVIDER) "GPS" else "網路"
+                  realText.value = buildString {
+                      append("真實 GPS：%.6f, %.6f".format(loc.latitude, loc.longitude))
+                      append("\n（%s，誤差約 ±%.0f 公尺".format(src, loc.accuracy))
+                      if (ageSec > 30) append("，%d 秒前".format(ageSec))
+                      append("）")
+                  }
+
+                  val gp = GeoPoint(loc.latitude, loc.longitude)
+                  if (realMarker == null) {
+                      realMarker = Marker(map).apply {
+                          icon = labelIcon("真", Color.parseColor("#1565C0"))
+                          setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                          infoWindow = null
+                      }
+                      map.overlays.add(realMarker)
+                  }
+                  realMarker!!.position = gp
+                  if (firstRealFix) { map.controller.animateTo(gp); firstRealFix = false }
+                  map.invalidate()
+              }
+
+              // ---------------- 權限與檢查 ----------------
+
+              private fun openSetupGuide() {
+                  startActivity(Intent(this, SetupActivity::class.java))
+              }
+
+              /** 設定沒完成就打開設定導覽 */
+              private fun checkReady(): Boolean {
+                  if (!SetupUtil.allDone(this)) {
+                      toast("還有設定沒完成，請依照導覽操作")
+                      openSetupGuide()
+                      return false
+                  }
+                  return true
+              }
+
+              // ---------------- 小工具 ----------------
+
+              private fun letter(i: Int): String =
+                  if (i < 26) ('A' + i).toString() else "${i + 1}"
+
+              private fun labelIcon(text: String, color: Int): BitmapDrawable {
+                  val size = (resources.displayMetrics.density * 30).toInt()
+                  val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                  val c = Canvas(bmp)
+                  val p = Paint(Paint.ANTI_ALIAS_FLAG)
+                  p.color = Color.WHITE
+                  c.drawCircle(size / 2f, size / 2f, size / 2f, p)
+                  p.color = color
+                  c.drawCircle(size / 2f, size / 2f, size / 2f - size * 0.08f, p)
+                  p.color = Color.WHITE
+                  p.textSize = size * 0.5f
+                  p.textAlign = Paint.Align.CENTER
+                  p.isFakeBoldText = true
+                  val y = size / 2f - (p.descent() + p.ascent()) / 2
+                  c.drawText(text, size / 2f, y, p)
+                  return BitmapDrawable(resources, bmp)
+              }
+
+              private fun dist(a: Double, b: Double, c: Double, d: Double): Double {
+                  val r = FloatArray(1)
+                  Location.distanceBetween(a, b, c, d, r)
+                  return r[0].toDouble()
+              }
+
+              private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 
               override fun onResume() {
                   super.onResume()
-                  autoAdvance()
+                  map.onResume()
+                  if (MockState.current.value == null) startRealGps()
               }
 
-              /** 目前步驟若已完成，自動跳到下一個未完成的步驟 */
-              private fun autoAdvance() {
-                  if (steps[index].isDone()) {
-                      val next = (index + 1 until steps.size).firstOrNull { !steps[it].isDone() }
-                      if (next != null) index = next
+              override fun onPause() {
+                  super.onPause()
+                  map.onPause()
+                  if (listeningReal) {
+                      try { lm.removeUpdates(realListener) } catch (_: Exception) {}
+                      listeningReal = false
                   }
-                  render()
-              }
-
-              private fun firstUndone(): Int =
-                  steps.indexOfFirst { !it.isDone() }.let { if (it < 0) steps.size - 1 else it }
-
-              private fun render() {
-                  val step = steps[index]
-                  val done = step.isDone()
-
-                  tvDots.text = steps.indices.joinToString(" ") { i ->
-                      when {
-                          steps[i].isDone() -> "●"
-                          i == index -> "◉"
-                          else -> "○"
-                      }
-                  }
-                  tvStepNum.text = "步驟 ${index + 1}"
-                  tvTitle.text = step.title
-                  tvBody.text = step.body
-
-                  tvState.text = if (done) "✓ 已完成" else "尚未完成"
-                  tvState.setTextColor(if (done) Color.parseColor("#1B5E20") else Color.parseColor("#5D4037"))
-                  tvState.background = GradientDrawable().apply {
-                      cornerRadius = 40f
-                      setColor(if (done) Color.parseColor("#C5E1A5") else Color.parseColor("#FFE082"))
-                  }
-
-                  btnAction.text = if (done) "再次開啟" else step.button
-                  btnBack.visibility = if (index > 0) View.VISIBLE else View.INVISIBLE
-                  btnNext.text = if (index < steps.size - 1) "下一步" else "完成"
-              }
-
-              private fun finishSetup() {
-                  if (!SetupUtil.isMockAppSelected(this)) {
-                      Toast.makeText(this, "還沒選取模擬位置應用程式，請完成步驟 2", Toast.LENGTH_LONG).show()
-                      index = 1; render(); return
-                  }
-                  if (!SetupUtil.hasLocationPermission(this)) {
-                      Toast.makeText(this, "還沒允許位置權限，請完成步驟 3", Toast.LENGTH_LONG).show()
-                      index = 2; render(); return
-                  }
-                  finish()
               }
           }
           __PW_EOF__
@@ -1200,554 +1942,926 @@ jobs:
           }
           __PW_EOF__
           mkdir -p app/src/main/java/com/example/pikminwalker
-          cat > app/src/main/java/com/example/pikminwalker/MainActivity.kt <<'__PW_EOF__'
+          cat > app/src/main/java/com/example/pikminwalker/MockState.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import kotlinx.coroutines.flow.MutableStateFlow
+
+          /** Service 與畫面之間共用的狀態 */
+          object MockState {
+              data class Pos(val lat: Double, val lng: Double)
+
+              /** 目前送出的模擬位置（null = 沒在模擬） */
+              val current = MutableStateFlow<Pos?>(null)
+
+              /** 狀態說明文字 */
+              val status = MutableStateFlow("尚未開始模擬（點這裡可開啟設定導覽）")
+
+              /** 是否正在走路線 */
+              val walking = MutableStateFlow(false)
+
+              /** 是否暫停 */
+              val paused = MutableStateFlow(false)
+
+              /** 路線剩餘距離（公尺） */
+              val remainingMeters = MutableStateFlow(0.0)
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/SetupActivity.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.graphics.Color
+          import android.graphics.drawable.GradientDrawable
+          import android.os.Bundle
+          import android.view.View
+          import android.widget.Button
+          import android.widget.TextView
+          import android.widget.Toast
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AppCompatActivity
+
+          /**
+           * 設定導覽：一步一步帶使用者完成
+           * 1. 開啟開發人員選項  2. 選取模擬位置應用程式  3. 允許權限
+           * 每次回到此畫面都會自動檢查，完成的步驟會自動跳到下一步。
+           */
+          class SetupActivity : AppCompatActivity() {
+
+              private class Step(
+                  val title: String,
+                  val body: String,
+                  val button: String,
+                  val isDone: () -> Boolean,
+                  val action: () -> Unit
+              )
+
+              private lateinit var steps: List<Step>
+              private var index = 0
+
+              private lateinit var tvDots: TextView
+              private lateinit var tvStepNum: TextView
+              private lateinit var tvTitle: TextView
+              private lateinit var tvState: TextView
+              private lateinit var tvBody: TextView
+              private lateinit var btnAction: Button
+              private lateinit var btnBack: Button
+              private lateinit var btnNext: Button
+
+              private val permLauncher =
+                  registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+                      autoAdvance()
+                  }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_setup)
+
+                  tvDots = findViewById(R.id.tvDots)
+                  tvStepNum = findViewById(R.id.tvStepNum)
+                  tvTitle = findViewById(R.id.tvTitle)
+                  tvState = findViewById(R.id.tvState)
+                  tvBody = findViewById(R.id.tvBody)
+                  btnAction = findViewById(R.id.btnAction)
+                  btnBack = findViewById(R.id.btnBack)
+                  btnNext = findViewById(R.id.btnNext)
+
+                  steps = listOf(
+                      Step(
+                          title = "開啟開發人員選項",
+                          body = "1. 按下方「前往關於手機」\n\n" +
+                              "2. 找到「版本號碼」，連續點 7 次\n" +
+                              "　（OPPO / realme：關於本機 → 版本 → 版本號碼）\n" +
+                              "　（Samsung：軟體資訊 → 版本號碼）\n" +
+                              "　（小米：MIUI / HyperOS 版本）\n\n" +
+                              "3. 看到「你已處於開發人員模式」後，按返回鍵回到這裡",
+                          button = "前往關於手機",
+                          isDone = { SetupUtil.isDeveloperEnabled(this) },
+                          action = { SetupUtil.openAboutPhone(this) }
+                      ),
+                      Step(
+                          title = "選取模擬位置應用程式",
+                          body = "1. 按下方「設定」，會直接開啟「開發人員選項」\n\n" +
+                              "2. 找到「位置」區塊的「選取模擬位置應用程式」\n" +
+                              "　（部分手機會自動捲到這一列並標示出來）\n\n" +
+                              "3. 點進去，選擇「皮克敏散步助手」\n\n" +
+                              "4. 按返回鍵回到這裡，會自動檢查是否完成",
+                          button = "設定",
+                          isDone = { SetupUtil.isMockAppSelected(this) },
+                          action = { SetupUtil.openMockLocationSetting(this) }
+                      ),
+                      Step(
+                          title = "允許位置與通知權限",
+                          body = "按下方「允許權限」：\n\n" +
+                              "• 位置：選「使用應用程式時允許」，並保持「精確位置」開啟\n\n" +
+                              "• 通知：選「允許」，模擬時通知列會顯示狀態與「停止模擬」按鈕\n\n" +
+                              "建議另外到手機設定把本 App 的電池用量設為「不限制」，避免背景被關掉。",
+                          button = "允許權限",
+                          isDone = { SetupUtil.missingPermissions(this).isEmpty() },
+                          action = {
+                              val need = SetupUtil.missingPermissions(this)
+                              if (need.isNotEmpty()) permLauncher.launch(need)
+                          }
+                      )
+                  )
+
+                  index = firstUndone()
+
+                  btnAction.setOnClickListener { steps[index].action() }
+                  btnBack.setOnClickListener {
+                      if (index > 0) { index--; render() }
+                  }
+                  btnNext.setOnClickListener {
+                      if (index < steps.size - 1) {
+                          index++; render()
+                      } else {
+                          finishSetup()
+                      }
+                  }
+                  render()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  autoAdvance()
+              }
+
+              /** 目前步驟若已完成，自動跳到下一個未完成的步驟 */
+              private fun autoAdvance() {
+                  if (steps[index].isDone()) {
+                      val next = (index + 1 until steps.size).firstOrNull { !steps[it].isDone() }
+                      if (next != null) index = next
+                  }
+                  render()
+              }
+
+              private fun firstUndone(): Int =
+                  steps.indexOfFirst { !it.isDone() }.let { if (it < 0) steps.size - 1 else it }
+
+              private fun render() {
+                  val step = steps[index]
+                  val done = step.isDone()
+
+                  tvDots.text = steps.indices.joinToString(" ") { i ->
+                      when {
+                          steps[i].isDone() -> "●"
+                          i == index -> "◉"
+                          else -> "○"
+                      }
+                  }
+                  tvStepNum.text = "步驟 ${index + 1}"
+                  tvTitle.text = step.title
+                  tvBody.text = step.body
+
+                  tvState.text = if (done) "✓ 已完成" else "尚未完成"
+                  tvState.setTextColor(if (done) Color.parseColor("#1B5E20") else Color.parseColor("#5D4037"))
+                  tvState.background = GradientDrawable().apply {
+                      cornerRadius = 40f
+                      setColor(if (done) Color.parseColor("#C5E1A5") else Color.parseColor("#FFE082"))
+                  }
+
+                  btnAction.text = if (done) "再次開啟" else step.button
+                  btnBack.visibility = if (index > 0) View.VISIBLE else View.INVISIBLE
+                  btnNext.text = if (index < steps.size - 1) "下一步" else "完成"
+              }
+
+              private fun finishSetup() {
+                  if (!SetupUtil.isMockAppSelected(this)) {
+                      Toast.makeText(this, "還沒選取模擬位置應用程式，請完成步驟 2", Toast.LENGTH_LONG).show()
+                      index = 1; render(); return
+                  }
+                  if (!SetupUtil.hasLocationPermission(this)) {
+                      Toast.makeText(this, "還沒允許位置權限，請完成步驟 3", Toast.LENGTH_LONG).show()
+                      index = 2; render(); return
+                  }
+                  finish()
+              }
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/SetupUtil.kt <<'__PW_EOF__'
           package com.example.pikminwalker
 
           import android.Manifest
-          import android.annotation.SuppressLint
           import android.app.AppOpsManager
           import android.content.Context
           import android.content.Intent
           import android.content.pm.PackageManager
-          import android.graphics.Bitmap
-          import android.graphics.Canvas
-          import android.graphics.Color
-          import android.graphics.Paint
-          import android.graphics.drawable.BitmapDrawable
-          import android.location.Location
-          import android.location.LocationListener
-          import android.location.LocationManager
           import android.os.Build
           import android.os.Bundle
-          import android.os.Looper
-          import android.os.SystemClock
           import android.os.Process
           import android.provider.Settings
-          import android.view.View
-          import android.widget.Button
-          import android.widget.CheckBox
-          import android.widget.EditText
-          import android.widget.TextView
-          import android.widget.Toast
-          import androidx.activity.result.contract.ActivityResultContracts
-          import androidx.appcompat.app.AlertDialog
-          import androidx.appcompat.app.AppCompatActivity
           import androidx.core.content.ContextCompat
-          import androidx.lifecycle.Lifecycle
-          import androidx.lifecycle.lifecycleScope
-          import androidx.lifecycle.repeatOnLifecycle
-          import com.google.android.material.button.MaterialButtonToggleGroup
-          import kotlinx.coroutines.flow.MutableStateFlow
-          import kotlinx.coroutines.flow.combine
-          import kotlinx.coroutines.launch
-          import org.osmdroid.config.Configuration
-          import org.osmdroid.events.MapEventsReceiver
-          import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
-          import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-          import org.osmdroid.util.MapTileIndex
-          import org.osmdroid.util.GeoPoint
-          import org.osmdroid.views.MapView
-          import org.osmdroid.views.overlay.MapEventsOverlay
-          import org.osmdroid.views.overlay.Marker
-          import org.osmdroid.views.overlay.Polyline
 
-          class MainActivity : AppCompatActivity() {
+          /** 檢查與開啟各項系統設定 */
+          object SetupUtil {
 
-              private lateinit var map: MapView
-              private lateinit var tvStatus: TextView
-              private lateinit var tvHint: TextView
-              private lateinit var etCoord: EditText
-              private lateinit var etSpeed: EditText
-              private lateinit var cbLoop: CheckBox
-              private lateinit var btnPrimary: Button
-              private lateinit var btnPause: Button
-              private lateinit var rowRoute: View
-
-              private var routeMode = false
-              private var jumpTarget: GeoPoint? = null
-              private var jumpMarker: Marker? = null
-              private var meMarker: Marker? = null
-              private val waypoints = mutableListOf<GeoPoint>()
-              private val waypointMarkers = mutableListOf<Marker>()
-              private lateinit var routeLine: Polyline
-              private var firstFix = true
-              private lateinit var btnLayer: Button
-
-              // ---- 沒模擬時：顯示真實 GPS ----
-              private val lm by lazy { getSystemService(Context.LOCATION_SERVICE) as LocationManager }
-              private val realText = MutableStateFlow("")
-              private var realLoc: Location? = null
-              private var realMarker: Marker? = null
-              private var listeningReal = false
-              private var firstRealFix = true
-              private val realListener = object : LocationListener {
-                  override fun onLocationChanged(location: Location) { onRealLocation(location) }
-                  override fun onProviderEnabled(provider: String) {}
-                  override fun onProviderDisabled(provider: String) {}
-                  @Deprecated("Deprecated in Java")
-                  @Suppress("DEPRECATION")
-                  override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+              /** 開發人員選項是否已開啟 */
+              fun isDeveloperEnabled(ctx: Context): Boolean = try {
+                  Settings.Global.getInt(ctx.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1
+              } catch (_: Exception) {
+                  false
               }
 
-              /** 可切換的地圖來源（都不需要 API key） */
-              private val tileSources by lazy {
-                  listOf(
-                      "街道圖" to EsriTileSource("EsriStreet", "World_Street_Map"),
-                      "衛星圖" to EsriTileSource("EsriImagery", "World_Imagery"),
-                      "OSM" to TileSourceFactory.MAPNIK
+              /** 本 App 是否已被選為模擬位置應用程式 */
+              fun isMockAppSelected(ctx: Context): Boolean = try {
+                  val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+                  val mode = if (Build.VERSION.SDK_INT >= 29) {
+                      ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), ctx.packageName)
+                  } else {
+                      @Suppress("DEPRECATION")
+                      ops.checkOpNoThrow(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), ctx.packageName)
+                  }
+                  mode == AppOpsManager.MODE_ALLOWED
+              } catch (_: Exception) {
+                  false
+              }
+
+              fun requiredPermissions(): Array<String> {
+                  val perms = mutableListOf(
+                      Manifest.permission.ACCESS_FINE_LOCATION,
+                      Manifest.permission.ACCESS_COARSE_LOCATION
                   )
-              }
-              private var tileIdx = 0
-
-              /** Esri 圖磚網址是 z/y/x 順序 */
-              private class EsriTileSource(name: String, service: String) : OnlineTileSourceBase(
-                  name, 0, 19, 256, "",
-                  arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/$service/MapServer/tile/"),
-                  "Esri"
-              ) {
-                  override fun getTileURLString(pMapTileIndex: Long): String =
-                      baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" +
-                          MapTileIndex.getY(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex)
+                  if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
+                  return perms.toTypedArray()
               }
 
-              private fun applyTiles() {
-                  map.setTileSource(tileSources[tileIdx].second)
-                  btnLayer.text = tileSources[tileIdx].first
-                  map.invalidate()
+              fun missingPermissions(ctx: Context): Array<String> =
+                  requiredPermissions().filter {
+                      ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED
+                  }.toTypedArray()
+
+              /** 位置權限一定要有；通知權限沒給也能用，只是看不到通知 */
+              fun hasLocationPermission(ctx: Context): Boolean =
+                  ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                      PackageManager.PERMISSION_GRANTED
+
+              fun allDone(ctx: Context): Boolean =
+                  isMockAppSelected(ctx) && hasLocationPermission(ctx)
+
+              /** 開啟「關於手機」 */
+              fun openAboutPhone(ctx: Context) {
+                  tryStart(ctx, Intent(Settings.ACTION_DEVICE_INFO_SETTINGS))
+                      || tryStart(ctx, Intent(Settings.ACTION_SETTINGS))
               }
 
-              private val prefs by lazy { getSharedPreferences("walker", Context.MODE_PRIVATE) }
-
-              private val permLauncher =
-                  registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
-
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  Configuration.getInstance().load(this, prefs)
-                  Configuration.getInstance().userAgentValue = "PikminWalker/1.0 (+https://github.com/weihan06/PikminWalker)"
-                  setContentView(R.layout.activity_main)
-
-                  map = findViewById(R.id.map)
-                  tvStatus = findViewById(R.id.tvStatus)
-                  tvHint = findViewById(R.id.tvHint)
-                  etCoord = findViewById(R.id.etCoord)
-                  etSpeed = findViewById(R.id.etSpeed)
-                  cbLoop = findViewById(R.id.cbLoop)
-                  btnPrimary = findViewById(R.id.btnPrimary)
-                  btnPause = findViewById(R.id.btnPause)
-                  rowRoute = findViewById(R.id.rowRoute)
-                  btnLayer = findViewById(R.id.btnLayer)
-
-                  setupMap()
-                  setupButtons()
-                  // 第一次使用或設定沒完成時，自動開啟設定導覽
-                  if (savedInstanceState == null && !SetupUtil.allDone(this)) openSetupGuide()
-                  // 點上方狀態列可隨時重新開啟設定導覽
-                  tvStatus.setOnClickListener { openSetupGuide() }
-                  observeState()
-              }
-
-              // ---------------- 地圖 ----------------
-
-              private fun setupMap() {
-                  tileIdx = prefs.getInt("tile_idx", 0).coerceIn(0, tileSources.size - 1)
-                  applyTiles()
-                  map.setMultiTouchControls(true)
-                  map.zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
-                  map.controller.setZoom(17.0)
-                  // 預設：上次位置，沒有就台南火車站
-                  val lat = prefs.getFloat("last_lat", 22.9971f).toDouble()
-                  val lng = prefs.getFloat("last_lng", 120.2128f).toDouble()
-                  map.controller.setCenter(GeoPoint(lat, lng))
-
-                  routeLine = Polyline(map).apply {
-                      outlinePaint.color = Color.parseColor("#2E7D32")
-                      outlinePaint.strokeWidth = 10f
-                  }
-                  map.overlays.add(routeLine)
-
-                  val receiver = object : MapEventsReceiver {
-                      override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
-                          onMapTap(p); return true
-                      }
-                      override fun longPressHelper(p: GeoPoint): Boolean = false
-                  }
-                  map.overlays.add(0, MapEventsOverlay(receiver))
-              }
-
-              private fun onMapTap(p: GeoPoint) {
-                  if (routeMode) addWaypoint(p) else setJumpTarget(p)
-              }
-
-              private fun setJumpTarget(p: GeoPoint) {
-                  jumpTarget = p
-                  if (jumpMarker == null) {
-                      jumpMarker = Marker(map).apply {
-                          icon = labelIcon("★", Color.parseColor("#F9A825"))
-                          setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                          isDraggable = true
-                          setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
-                              override fun onMarkerDrag(m: Marker) {}
-                              override fun onMarkerDragStart(m: Marker) {}
-                              override fun onMarkerDragEnd(m: Marker) { jumpTarget = m.position; updateHint() }
-                          })
-                      }
-                      map.overlays.add(jumpMarker)
-                  }
-                  jumpMarker!!.position = p
-                  updateHint()
-                  map.invalidate()
-              }
-
-              private fun addWaypoint(p: GeoPoint) {
-                  waypoints.add(p)
-                  val idx = waypoints.size - 1
-                  val m = Marker(map).apply {
-                      position = p
-                      icon = labelIcon(letter(idx), Color.parseColor("#1565C0"))
-                      setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                      isDraggable = true
-                      setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
-                          override fun onMarkerDrag(m: Marker) {}
-                          override fun onMarkerDragStart(m: Marker) {}
-                          override fun onMarkerDragEnd(m: Marker) {
-                              val i = waypointMarkers.indexOf(m)
-                              if (i >= 0) { waypoints[i] = m.position; redrawRoute() }
-                          }
+              /**
+               * 直接開啟開發人員選項，並嘗試自動捲動並標示「選取模擬位置應用程式」那一列
+               * （原生 Android 與多數品牌支援；不支援的手機會停在開發人員選項頁面最上方）
+               */
+              fun openMockLocationSetting(ctx: Context) {
+                  val key = "mock_location_app"
+                  val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
+                      putExtra(":settings:fragment_args_key", key)
+                      putExtra(":settings:show_fragment_args", Bundle().apply {
+                          putString(":settings:fragment_args_key", key)
                       })
                   }
-                  waypointMarkers.add(m)
-                  map.overlays.add(m)
-                  redrawRoute()
+                  tryStart(ctx, intent) || tryStart(ctx, Intent(Settings.ACTION_SETTINGS))
               }
 
-              private fun redrawRoute() {
-                  routeLine.setPoints(waypoints.toList())
-                  updateHint()
-                  map.invalidate()
-              }
-
-              private fun clearRoute() {
-                  waypointMarkers.forEach { map.overlays.remove(it) }
-                  waypointMarkers.clear()
-                  waypoints.clear()
-                  redrawRoute()
-              }
-
-              private fun undoWaypoint() {
-                  if (waypoints.isEmpty()) return
-                  map.overlays.remove(waypointMarkers.removeAt(waypointMarkers.size - 1))
-                  waypoints.removeAt(waypoints.size - 1)
-                  redrawRoute()
-              }
-
-              // ---------------- 按鈕 ----------------
-
-              private fun setupButtons() {
-                  findViewById<MaterialButtonToggleGroup>(R.id.toggleMode)
-                      .addOnButtonCheckedListener { _, id, checked ->
-                          if (!checked) return@addOnButtonCheckedListener
-                          routeMode = id == R.id.btnModeRoute
-                          rowRoute.visibility = if (routeMode) View.VISIBLE else View.GONE
-                          btnPrimary.text = if (routeMode) "開始走" else "移動到這裡"
-                          jumpMarker?.setVisible(!routeMode)
-                          updateHint()
-                          map.invalidate()
-                      }
-
-                  btnPrimary.setOnClickListener { if (routeMode) startRoute() else teleport() }
-
-                  btnPause.setOnClickListener {
-                      if (!MockState.walking.value) {
-                          toast("目前沒有在走路線"); return@setOnClickListener
-                      }
-                      sendToService(if (MockState.paused.value) MockLocationService.ACTION_RESUME
-                                    else MockLocationService.ACTION_PAUSE)
-                  }
-
-                  findViewById<Button>(R.id.btnStop).setOnClickListener {
-                      if (MockState.current.value != null) sendToService(MockLocationService.ACTION_STOP)
-                  }
-
-                  findViewById<Button>(R.id.btnLocate).setOnClickListener {
-                      val mock = MockState.current.value
-                      val real = realLoc
-                      when {
-                          mock != null -> map.controller.animateTo(GeoPoint(mock.lat, mock.lng))
-                          real != null -> map.controller.animateTo(GeoPoint(real.latitude, real.longitude))
-                          else -> toast("還沒抓到 GPS 位置")
-                      }
-                  }
-
-                  findViewById<Button>(R.id.btnGo).setOnClickListener { goToTypedCoord() }
-                  btnLayer.setOnClickListener {
-                      tileIdx = (tileIdx + 1) % tileSources.size
-                      prefs.edit().putInt("tile_idx", tileIdx).apply()
-                      applyTiles()
-                  }
-                  findViewById<Button>(R.id.btnUndo).setOnClickListener { undoWaypoint() }
-                  findViewById<Button>(R.id.btnClear).setOnClickListener { clearRoute() }
-              }
-
-              /** 解析「22.99, 120.21」這類座標（可直接貼 Google 地圖複製的座標） */
-              private fun goToTypedCoord() {
-                  val parts = etCoord.text.toString()
-                      .replace("(", "").replace(")", "")
-                      .split(",", " ", "，").filter { it.isNotBlank() }
-                  val lat = parts.getOrNull(0)?.toDoubleOrNull()
-                  val lng = parts.getOrNull(1)?.toDoubleOrNull()
-                  if (lat == null || lng == null || lat !in -90.0..90.0 || lng !in -180.0..180.0) {
-                      toast("座標格式錯誤，請輸入「緯度, 經度」"); return
-                  }
-                  val p = GeoPoint(lat, lng)
-                  map.controller.animateTo(p)
-                  onMapTap(p)
-              }
-
-              private fun teleport() {
-                  val t = jumpTarget ?: run { toast("請先在地圖上點選目的地"); return }
-                  if (!checkReady()) return
-                  val cur = MockState.current.value
-                  if (cur != null) {
-                      val d = dist(cur.lat, cur.lng, t.latitude, t.longitude)
-                      if (d > 2000) toast("距離 %.1f km，大距離瞬移建議等一段時間再操作遊戲".format(d / 1000))
-                  }
-                  startService(Intent(this, MockLocationService::class.java).apply {
-                      action = MockLocationService.ACTION_TELEPORT
-                      putExtra(MockLocationService.EXTRA_LAT, t.latitude)
-                      putExtra(MockLocationService.EXTRA_LNG, t.longitude)
-                  }, foreground = true)
-              }
-
-              private fun startRoute() {
-                  if (waypoints.size < 2) { toast("請至少在地圖上點兩個點（A → B）"); return }
-                  val speed = etSpeed.text.toString().toDoubleOrNull()
-                  if (speed == null || speed <= 0) { toast("請輸入速度"); return }
-                  if (speed > 10) toast("提醒：皮克敏一般認為時速超過約 10 km/h 步數不會計算")
-                  if (!checkReady()) return
-                  startService(Intent(this, MockLocationService::class.java).apply {
-                      action = MockLocationService.ACTION_ROUTE
-                      putExtra(MockLocationService.EXTRA_LATS, waypoints.map { it.latitude }.toDoubleArray())
-                      putExtra(MockLocationService.EXTRA_LNGS, waypoints.map { it.longitude }.toDoubleArray())
-                      putExtra(MockLocationService.EXTRA_SPEED_KMH, speed)
-                      putExtra(MockLocationService.EXTRA_LOOP, cbLoop.isChecked)
-                  }, foreground = true)
-              }
-
-              private fun sendToService(action: String) {
-                  startService(Intent(this, MockLocationService::class.java).setAction(action), foreground = false)
-              }
-
-              private fun startService(i: Intent, foreground: Boolean) {
-                  if (foreground) ContextCompat.startForegroundService(this, i) else startService(i)
-              }
-
-              // ---------------- 狀態顯示 ----------------
-
-              private fun observeState() {
-                  lifecycleScope.launch {
-                      repeatOnLifecycle(Lifecycle.State.STARTED) {
-                          launch {
-                              MockState.current.collect { pos ->
-                                  if (pos == null) {
-                                      meMarker?.let { map.overlays.remove(it) }
-                                      meMarker = null
-                                      firstFix = true
-                                      startRealGps()
-                                  } else {
-                                      stopRealGps()
-                                      val gp = GeoPoint(pos.lat, pos.lng)
-                                      if (meMarker == null) {
-                                          meMarker = Marker(map).apply {
-                                              icon = labelIcon("我", Color.parseColor("#C62828"))
-                                              setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                                              infoWindow = null
-                                          }
-                                          map.overlays.add(meMarker)
-                                      }
-                                      meMarker!!.position = gp
-                                      if (firstFix) { map.controller.animateTo(gp); firstFix = false }
-                                      prefs.edit().putFloat("last_lat", pos.lat.toFloat())
-                                          .putFloat("last_lng", pos.lng.toFloat()).apply()
-                                  }
-                                  map.invalidate()
-                              }
-                          }
-                          launch {
-                              combine(MockState.status, MockState.current, MockState.remainingMeters,
-                                  MockState.walking, realText) { s, c, r, w, real ->
-                                  buildString {
-                                      append(s)
-                                      if (c != null) append("\n目前：%.6f, %.6f".format(c.lat, c.lng))
-                                      else if (real.isNotEmpty()) append("\n").append(real)
-                                      if (w && r > 0) append("\n剩餘 %.0f 公尺".format(r))
-                                  }
-                              }.collect { tvStatus.text = it }
-                          }
-                          launch {
-                              MockState.paused.collect { btnPause.text = if (it) "繼續" else "暫停" }
-                          }
-                      }
-                  }
-              }
-
-              private fun updateHint() {
-                  tvHint.text = if (routeMode) {
-                      if (waypoints.size < 2) {
-                          "點地圖依序加入路線點（A、B、C、D…），可拖曳點調整位置"
-                      } else {
-                          var total = 0.0
-                          for (i in 0 until waypoints.size - 1) {
-                              total += dist(waypoints[i].latitude, waypoints[i].longitude,
-                                  waypoints[i + 1].latitude, waypoints[i + 1].longitude)
-                          }
-                          val speed = etSpeed.text.toString().toDoubleOrNull() ?: 5.0
-                          val min = total / 1000 / speed * 60
-                          "共 %d 點，全長 %.2f km，約 %.0f 分鐘（%.1f km/h）".format(waypoints.size, total / 1000, min, speed)
-                      }
-                  } else {
-                      jumpTarget?.let { "目的地：%.6f, %.6f".format(it.latitude, it.longitude) }
-                          ?: "點地圖選擇目的地，再按「移動到這裡」"
-                  }
-              }
-
-              // ---------------- 真實 GPS（沒模擬時顯示） ----------------
-
-              @SuppressLint("MissingPermission")
-              private fun startRealGps() {
-                  if (listeningReal || MockState.current.value != null) return
-                  if (!SetupUtil.hasLocationPermission(this)) {
-                      realText.value = "真實 GPS：尚未允許位置權限"
-                      return
-                  }
-                  listeningReal = true
-                  if (realLoc == null) realText.value = "真實 GPS：定位中…"
-                  // 先用最後已知位置快速顯示
-                  for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
-                      try { lm.getLastKnownLocation(p)?.let { onRealLocation(it) } } catch (_: Exception) {}
-                  }
-                  for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
-                      try {
-                          if (lm.isProviderEnabled(p)) {
-                              lm.requestLocationUpdates(p, 2000L, 0f, realListener, Looper.getMainLooper())
-                          }
-                      } catch (_: Exception) {}
-                  }
-                  if (!lm.isProviderEnabled(LocationManager.GPS_PROVIDER) &&
-                      !lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                      realText.value = "真實 GPS：手機定位功能已關閉"
-                  }
-              }
-
-              private fun stopRealGps() {
-                  if (listeningReal) {
-                      try { lm.removeUpdates(realListener) } catch (_: Exception) {}
-                      listeningReal = false
-                  }
-                  realMarker?.let { map.overlays.remove(it) }
-                  realMarker = null
-                  realText.value = ""
-              }
-
-              private fun onRealLocation(loc: Location) {
-                  if (MockState.current.value != null) return
-                  // 忽略模擬出來的位置
-                  val isMock = if (Build.VERSION.SDK_INT >= 31) loc.isMock else {
-                      @Suppress("DEPRECATION") loc.isFromMockProvider
-                  }
-                  if (isMock) return
-                  // 有 10 秒內的 GPS 定位時，不要被較不準的網路定位蓋掉
-                  val prev = realLoc
-                  if (prev != null && prev.provider == LocationManager.GPS_PROVIDER &&
-                      loc.provider != LocationManager.GPS_PROVIDER &&
-                      (loc.elapsedRealtimeNanos - prev.elapsedRealtimeNanos) < 10_000_000_000L) return
-
-                  realLoc = loc
-                  val ageSec = (SystemClock.elapsedRealtimeNanos() - loc.elapsedRealtimeNanos) / 1_000_000_000L
-                  val src = if (loc.provider == LocationManager.GPS_PROVIDER) "GPS" else "網路"
-                  realText.value = buildString {
-                      append("真實 GPS：%.6f, %.6f".format(loc.latitude, loc.longitude))
-                      append("\n（%s，誤差約 ±%.0f 公尺".format(src, loc.accuracy))
-                      if (ageSec > 30) append("，%d 秒前".format(ageSec))
-                      append("）")
-                  }
-
-                  val gp = GeoPoint(loc.latitude, loc.longitude)
-                  if (realMarker == null) {
-                      realMarker = Marker(map).apply {
-                          icon = labelIcon("真", Color.parseColor("#1565C0"))
-                          setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                          infoWindow = null
-                      }
-                      map.overlays.add(realMarker)
-                  }
-                  realMarker!!.position = gp
-                  if (firstRealFix) { map.controller.animateTo(gp); firstRealFix = false }
-                  map.invalidate()
-              }
-
-              // ---------------- 權限與檢查 ----------------
-
-              private fun openSetupGuide() {
-                  startActivity(Intent(this, SetupActivity::class.java))
-              }
-
-              /** 設定沒完成就打開設定導覽 */
-              private fun checkReady(): Boolean {
-                  if (!SetupUtil.allDone(this)) {
-                      toast("還有設定沒完成，請依照導覽操作")
-                      openSetupGuide()
-                      return false
-                  }
-                  return true
-              }
-
-              // ---------------- 小工具 ----------------
-
-              private fun letter(i: Int): String =
-                  if (i < 26) ('A' + i).toString() else "${i + 1}"
-
-              private fun labelIcon(text: String, color: Int): BitmapDrawable {
-                  val size = (resources.displayMetrics.density * 30).toInt()
-                  val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-                  val c = Canvas(bmp)
-                  val p = Paint(Paint.ANTI_ALIAS_FLAG)
-                  p.color = Color.WHITE
-                  c.drawCircle(size / 2f, size / 2f, size / 2f, p)
-                  p.color = color
-                  c.drawCircle(size / 2f, size / 2f, size / 2f - size * 0.08f, p)
-                  p.color = Color.WHITE
-                  p.textSize = size * 0.5f
-                  p.textAlign = Paint.Align.CENTER
-                  p.isFakeBoldText = true
-                  val y = size / 2f - (p.descent() + p.ascent()) / 2
-                  c.drawText(text, size / 2f, y, p)
-                  return BitmapDrawable(resources, bmp)
-              }
-
-              private fun dist(a: Double, b: Double, c: Double, d: Double): Double {
-                  val r = FloatArray(1)
-                  Location.distanceBetween(a, b, c, d, r)
-                  return r[0].toDouble()
-              }
-
-              private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
-
-              override fun onResume() {
-                  super.onResume()
-                  map.onResume()
-                  if (MockState.current.value == null) startRealGps()
-              }
-
-              override fun onPause() {
-                  super.onPause()
-                  map.onPause()
-                  if (listeningReal) {
-                      try { lm.removeUpdates(realListener) } catch (_: Exception) {}
-                      listeningReal = false
-                  }
+              private fun tryStart(ctx: Context, i: Intent): Boolean = try {
+                  ctx.startActivity(i); true
+              } catch (_: Exception) {
+                  false
               }
           }
+          __PW_EOF__
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/bg_fav_item.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#FFFFFF" />
+              <corners android:radius="10dp" />
+              <stroke
+                  android:width="1dp"
+                  android:color="#E0E0E0" />
+          </shape>
+          __PW_EOF__
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_launcher_background.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#388E3C"
+                  android:pathData="M0,0 L108,0 L108,108 L0,108 Z" />
+              <path
+                  android:fillColor="#2E7D32"
+                  android:pathData="M0,74 C24,66 44,80 66,74 C84,69 96,72 108,70 L108,108 L0,108 Z" />
+          </vector>
+          __PW_EOF__
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <group
+                  android:pivotX="54"
+                  android:pivotY="58"
+                  android:scaleX="1.08"
+                  android:scaleY="1.08"
+                  android:translateY="-3">
+                  <!-- 圖釘陰影 -->
+                  <group
+                      android:translateX="1.5"
+                      android:translateY="2">
+                      <path
+                          android:fillAlpha="0.35"
+                          android:fillColor="#1B5E20"
+                          android:pathData="M54,84 C48,74 37,65 37,52 A17,17 0 1,1 71,52 C71,65 60,74 54,84 Z" />
+                  </group>
+                  <!-- 白色定位圖釘 -->
+                  <path
+                      android:fillColor="#FFFFFF"
+                      android:pathData="M54,84 C48,74 37,65 37,52 A17,17 0 1,1 71,52 C71,65 60,74 54,84 Z" />
+                  <!-- 嫩芽 -->
+                  <path
+                      android:pathData="M54,61 L54,47"
+                      android:strokeWidth="2.6"
+                      android:strokeColor="#2E7D32"
+                      android:strokeLineCap="round" />
+                  <path
+                      android:fillColor="#43A047"
+                      android:pathData="M54,52 C47.5,52 42.5,47.5 42.5,41 C49,41 54,45.5 54,52 Z" />
+                  <path
+                      android:fillColor="#2E7D32"
+                      android:pathData="M54,48 C54,41.5 59,36.5 66,36.5 C66,43 61,48 54,48 Z" />
+                  <!-- 腳步點 -->
+                  <path
+                      android:fillColor="#FFCA28"
+                      android:pathData="M30.6,77 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
+                  <path
+                      android:fillColor="#FFCA28"
+                      android:pathData="M36.6,79.5 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
+                  <path
+                      android:fillColor="#FFCA28"
+                      android:pathData="M42.6,81.5 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0 Z" />
+              </group>
+          </vector>
+          __PW_EOF__
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_notify.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp"
+              android:height="24dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <group android:pivotX="54" android:pivotY="58" android:scaleX="1.7" android:scaleY="1.7" android:translateY="-6">
+                  <path
+                      android:fillColor="#FFFFFF"
+                      android:fillType="evenOdd"
+                      android:pathData="M54,84 C48,74 37,65 37,52 A17,17 0 1,1 71,52 C71,65 60,74 54,84 Z M54,52 C47.5,52 42.5,47.5 42.5,41 C49,41 54,45.5 54,52 Z M54,48 C54,41.5 59,36.5 66,36.5 C66,43 61,48 54,48 Z" />
+              </group>
+          </vector>
+          __PW_EOF__
+          mkdir -p app/src/main/res/layout
+          cat > app/src/main/res/layout/activity_favorites.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#FAFAFA"
+              android:orientation="vertical">
+
+              <!-- 標題列 -->
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:background="#2E7D32"
+                  android:gravity="center_vertical"
+                  android:orientation="horizontal"
+                  android:paddingHorizontal="4dp"
+                  android:paddingVertical="4dp">
+
+                  <Button
+                      android:id="@+id/btnBack"
+                      style="?attr/borderlessButtonStyle"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:minWidth="48dp"
+                      android:text="←"
+                      android:textColor="#FFFFFF"
+                      android:textSize="22sp" />
+
+                  <TextView
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:text="★ 收藏"
+                      android:textColor="#FFFFFF"
+                      android:textSize="20sp"
+                      android:textStyle="bold" />
+
+                  <Button
+                      android:id="@+id/btnImport"
+                      style="?attr/borderlessButtonStyle"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="匯入"
+                      android:textColor="#FFFFFF"
+                      android:textSize="16sp" />
+
+                  <Button
+                      android:id="@+id/btnExport"
+                      style="?attr/borderlessButtonStyle"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="分享 / 匯出"
+                      android:textColor="#FFFFFF"
+                      android:textSize="16sp" />
+              </LinearLayout>
+
+              <!-- 資料夾分頁 -->
+              <HorizontalScrollView
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:background="#FFFFFF"
+                  android:elevation="2dp"
+                  android:scrollbars="none">
+
+                  <com.google.android.material.chip.ChipGroup
+                      android:id="@+id/chips"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:paddingHorizontal="8dp"
+                      android:paddingVertical="4dp"
+                      app:selectionRequired="true"
+                      app:singleLine="true"
+                      app:singleSelection="true" />
+              </HorizontalScrollView>
+
+              <TextView
+                  android:id="@+id/tvFolderInfo"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:paddingHorizontal="16dp"
+                  android:paddingTop="8dp"
+                  android:paddingBottom="4dp"
+                  android:textColor="#666666"
+                  android:textSize="13sp" />
+
+              <FrameLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_weight="1">
+
+                  <androidx.recyclerview.widget.RecyclerView
+                      android:id="@+id/list"
+                      android:layout_width="match_parent"
+                      android:layout_height="match_parent"
+                      android:clipToPadding="false"
+                      android:paddingBottom="8dp" />
+
+                  <TextView
+                      android:id="@+id/tvEmpty"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_gravity="center"
+                      android:gravity="center"
+                      android:lineSpacingMultiplier="1.3"
+                      android:padding="32dp"
+                      android:text="這個資料夾還沒有收藏\n\n在主畫面「長按地圖」\n或按下方按鈕即可收藏"
+                      android:textColor="#888888"
+                      android:textSize="16sp" />
+              </FrameLayout>
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:background="#FFFFFF"
+                  android:elevation="8dp"
+                  android:orientation="horizontal"
+                  android:padding="8dp">
+
+                  <Button
+                      android:id="@+id/btnAddHere"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:text="＋ 收藏目前位置" />
+
+                  <Button
+                      android:id="@+id/btnNewFolder"
+                      style="?attr/materialButtonOutlinedStyle"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginStart="8dp"
+                      android:text="＋ 資料夾" />
+              </LinearLayout>
+          </LinearLayout>
+          __PW_EOF__
+          mkdir -p app/src/main/res/layout
+          cat > app/src/main/res/layout/activity_main.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent">
+
+              <org.osmdroid.views.MapView
+                  android:id="@+id/map"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent" />
+
+              <TextView
+                  android:id="@+id/tvStatus"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="top"
+                  android:layout_margin="8dp"
+                  android:background="#E6FFFFFF"
+                  android:elevation="4dp"
+                  android:padding="10dp"
+                  android:text="尚未開始模擬"
+                  android:textColor="#222222"
+                  android:textSize="13sp" />
+
+              <Button
+                  android:id="@+id/btnFav"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="end|center_vertical"
+                  android:layout_marginEnd="10dp"
+                  android:backgroundTint="#F9A825"
+                  android:elevation="6dp"
+                  android:paddingHorizontal="10dp"
+                  android:text="★\n收藏"
+                  android:textColor="#FFFFFF"
+                  android:textSize="15sp"
+                  android:textStyle="bold" />
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="bottom"
+                  android:background="#F7FFFFFF"
+                  android:elevation="8dp"
+                  android:orientation="vertical"
+                  android:padding="10dp">
+
+                  <com.google.android.material.button.MaterialButtonToggleGroup
+                      android:id="@+id/toggleMode"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      app:checkedButton="@+id/btnModeJump"
+                      app:selectionRequired="true"
+                      app:singleSelection="true">
+
+                      <Button
+                          android:id="@+id/btnModeJump"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1"
+                          android:text="瞬移模式" />
+
+                      <Button
+                          android:id="@+id/btnModeRoute"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1"
+                          android:text="路線散步模式" />
+                  </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:gravity="center_vertical"
+                      android:orientation="horizontal">
+
+                      <EditText
+                          android:id="@+id/etCoord"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1"
+                          android:hint="輸入座標，例：22.9908, 120.2133"
+                          android:imeOptions="actionDone"
+                          android:inputType="text"
+                          android:textSize="14sp" />
+
+                      <Button
+                          android:id="@+id/btnGo"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="放上地圖" />
+
+                      <Button
+                          android:id="@+id/btnLayer"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="4dp"
+                          android:maxLines="1"
+                          android:text="街道圖" />
+                  </LinearLayout>
+
+                  <LinearLayout
+                      android:id="@+id/rowRoute"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:gravity="center_vertical"
+                      android:orientation="horizontal"
+                      android:visibility="gone">
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="速度 km/h：" />
+
+                      <EditText
+                          android:id="@+id/etSpeed"
+                          android:layout_width="64dp"
+                          android:layout_height="wrap_content"
+                          android:inputType="numberDecimal"
+                          android:text="5" />
+
+                      <CheckBox
+                          android:id="@+id/cbLoop"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="來回循環" />
+
+                      <Button
+                          android:id="@+id/btnUndo"
+                          style="?attr/borderlessButtonStyle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="復原" />
+
+                      <Button
+                          android:id="@+id/btnClear"
+                          style="?attr/borderlessButtonStyle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="清除" />
+                  </LinearLayout>
+
+                  <TextView
+                      android:id="@+id/tvHint"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:paddingVertical="4dp"
+                      android:text="點地圖選擇目的地"
+                      android:textColor="#555555"
+                      android:textSize="12sp" />
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="horizontal">
+
+                      <Button
+                          android:id="@+id/btnPrimary"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1.4"
+                          android:text="移動到這裡" />
+
+                      <Button
+                          android:id="@+id/btnPause"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="6dp"
+                          android:layout_weight="1"
+                          android:maxLines="1"
+                          android:text="暫停" />
+
+                      <Button
+                          android:id="@+id/btnStop"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="6dp"
+                          android:layout_weight="1"
+                          android:maxLines="1"
+                          android:text="停止" />
+
+                      <Button
+                          android:id="@+id/btnLocate"
+                          style="?attr/materialButtonOutlinedStyle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="6dp"
+                          android:text="◎" />
+                  </LinearLayout>
+              </LinearLayout>
+          </FrameLayout>
+          __PW_EOF__
+          mkdir -p app/src/main/res/layout
+          cat > app/src/main/res/layout/activity_setup.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#37474F"
+              android:orientation="vertical"
+              android:padding="24dp">
+
+              <TextView
+                  android:id="@+id/tvDots"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="24dp"
+                  android:gravity="center"
+                  android:letterSpacing="0.3"
+                  android:textColor="#FFFFFF"
+                  android:textSize="18sp" />
+
+              <TextView
+                  android:id="@+id/tvStepNum"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="16dp"
+                  android:gravity="center"
+                  android:textColor="#FFFFFF"
+                  android:textSize="40sp"
+                  android:textStyle="bold" />
+
+              <TextView
+                  android:id="@+id/tvTitle"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="8dp"
+                  android:gravity="center"
+                  android:textColor="#C5E1A5"
+                  android:textSize="22sp"
+                  android:textStyle="bold" />
+
+              <TextView
+                  android:id="@+id/tvState"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center_horizontal"
+                  android:layout_marginTop="12dp"
+                  android:paddingHorizontal="14dp"
+                  android:paddingVertical="4dp"
+                  android:textSize="15sp"
+                  android:textStyle="bold" />
+
+              <ScrollView
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_marginTop="20dp"
+                  android:layout_weight="1">
+
+                  <TextView
+                      android:id="@+id/tvBody"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:lineSpacingMultiplier="1.35"
+                      android:textColor="#FFFFFF"
+                      android:textSize="18sp" />
+              </ScrollView>
+
+              <Button
+                  android:id="@+id/btnAction"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center_horizontal"
+                  android:layout_marginBottom="16dp"
+                  android:backgroundTint="#2E7D32"
+                  android:minWidth="200dp"
+                  android:paddingVertical="12dp"
+                  android:textSize="20sp" />
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal">
+
+                  <Button
+                      android:id="@+id/btnBack"
+                      style="?attr/borderlessButtonStyle"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="上一步"
+                      android:textColor="#FFFFFF"
+                      android:textSize="17sp" />
+
+                  <View
+                      android:layout_width="0dp"
+                      android:layout_height="1dp"
+                      android:layout_weight="1" />
+
+                  <Button
+                      android:id="@+id/btnNext"
+                      style="?attr/borderlessButtonStyle"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:textColor="#FFFFFF"
+                      android:textSize="17sp" />
+              </LinearLayout>
+          </LinearLayout>
+          __PW_EOF__
+          mkdir -p app/src/main/res/layout
+          cat > app/src/main/res/layout/item_favorite.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_marginHorizontal="8dp"
+              android:layout_marginVertical="3dp"
+              android:background="@drawable/bg_fav_item"
+              android:gravity="center_vertical"
+              android:minHeight="64dp"
+              android:orientation="horizontal">
+
+              <!-- 拖拉把手 -->
+              <TextView
+                  android:id="@+id/handle"
+                  android:layout_width="48dp"
+                  android:layout_height="match_parent"
+                  android:gravity="center"
+                  android:text="≡"
+                  android:textColor="#9E9E9E"
+                  android:textSize="26sp" />
+
+              <TextView
+                  android:id="@+id/pin"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_marginEnd="10dp"
+                  android:text="📍"
+                  android:textSize="20sp" />
+
+              <LinearLayout
+                  android:layout_width="0dp"
+                  android:layout_height="wrap_content"
+                  android:layout_weight="1"
+                  android:orientation="vertical"
+                  android:paddingVertical="10dp">
+
+                  <TextView
+                      android:id="@+id/tvName"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:ellipsize="end"
+                      android:maxLines="2"
+                      android:textColor="#212121"
+                      android:textSize="17sp" />
+
+                  <TextView
+                      android:id="@+id/tvCoord"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:textColor="#757575"
+                      android:textSize="12sp" />
+              </LinearLayout>
+
+              <TextView
+                  android:id="@+id/btnMore"
+                  android:layout_width="48dp"
+                  android:layout_height="match_parent"
+                  android:gravity="center"
+                  android:text="⋮"
+                  android:textColor="#616161"
+                  android:textSize="24sp" />
+          </LinearLayout>
+          __PW_EOF__
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          __PW_EOF__
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          __PW_EOF__
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/strings.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">皮克敏散步助手</string>
+          </resources>
+          __PW_EOF__
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/themes.xml <<'__PW_EOF__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.PikminWalker" parent="Theme.Material3.Light.NoActionBar">
+                  <item name="colorPrimary">#2E7D32</item>
+                  <item name="colorSecondary">#F9A825</item>
+              </style>
+          </resources>
           __PW_EOF__
           # 固定簽章金鑰（讓 App 可以直接覆蓋更新）
           echo 'MIIKYAIBAzCCCgoGCSqGSIb3DQEHAaCCCfsEggn3MIIJ8zCCBboGCSqGSIb3DQEHAaCCBasEggWnMIIFozCCBZ8GCyqGSIb3DQEMCgECoIIFQDCCBTwwZgYJKoZIhvcNAQUNMFkwOAYJKoZIhvcNAQUMMCsEFB2vE3L18OBJHpYO6Xd83lXsleXOAgInEAIBIDAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQBKgQQQirGxd+PqRFDTOrGJXPtrwSCBNAe5krv5hq6MwVdGYr62nYLynKNRMtXHdXxJ1IHvy2Li/uJRzrhbHy9xvhXtvgAeZMqqCab/o14YzD52jP9cakusufp2rpb9ANDnhn27y+SKEl8Lg/HNYuMUR5Iu/s+oqPt6eZG/Dhmw02yTEnq5JJO/PBeFuKqyuNcQzVk35Q1/evryb0Wpk8rgRClKWHgxP63UWsohd2JWqOGWvQGvH1XrKDfqOB7aCx6dGpUmgjyUTwhFh7Za5JDffDmBIP2UxuoYRFYZLvr6/xITuwZ/kDPWJjrz4mvyyVssXXk32xw7MHdTDgXnZJ966Yjt1xgpypTUhmPJxvF/YWCPzJoWhq3LpmZWVgwYchRPLa44+15yG2VQPpQpBMqFZSJ23JclFYUc00x5lEWAoY4TiNkGL8oGCzkx7yzwFqk48l2/NBnjF3O0oI5tM3+kzz7UFlIYIPLhsO4Z0hheH5nxKcVbuLNnWeqpnsY7nrm1c6LPJu3d5PcRR8/zJy0mKg47tTy/rlTjAUrJqv14jmPunDKHFg/IGjuKWehGTgJB/5unqrdUjrsCSCXR3f3hHGVW1Rd/zN+LbcDBFq6yKZmlK/39WQw/Q8P7CWi1/LQsYBqZ4ow5bSGu5zvxO6JTNJad/UY7aSbI47LMZKttNC3Wy3GiFPTWmEiIL/yp9AObUwjBlruD1dfjNz89cSOqdYv3XGwilEca3ojz/MO1z3fpzDhQHOG0lX0LSrmRwsvs9n6KT09SAYs7tZDhw7Gt4l5wQiBMYhVOa4ssK7bT6aiZrPPH0ERUXxx3ziEN7NvdK02o/rpb3YCPTEAykO9cxP3oW7Plho/U6qAKhWQUjdeuOm1vWqHOeT451veot+f7KDLHin0jUFMwuTefYqBiYbMM9McTMP42irUk4nP44QXno9LiADsP2T2M0Q9XysPKSvOmvzzcza9bbnw+gePP0d7QccrSXdsr1OrFi2FGHh+qA7jjHm7Rly8pLOZWe4Pgk0MxlAJf/2jR8A4m6LOZeHhbIgz7en/cfjkNePzzaMhCRrTcTCHWL6+HkdfNSHoDVmV1fS9qZIEt/RTXRkQiP9Tk/4Zzec6iLX6N26w8OooEz/7myt6FiTJ4VoHMNGaCIFhV8xmjtI5WaF6r+6LabkQ8Bv9s8tfu42ZsF3FXaSV4vm5dZrQcaFkl7k1LfeLPpPDbF/Sx3ujPOFg80Cn2qFUtDVZYy0yq6/scklNjkvFmcJHcSsHC4H0J7Bcoy3FbGsMPYSQzeJua23rwzyi5PEKm0X3kVv4EyuHASMzRaNyDAeFZGBU5qKxm8eEqMycLC6Yq3X4oqf7zI+de0Th+EfYd32e5JQ4VS+uKeip88CxcbhqR1eENcse/12jhFLfBN+62AS1XOpxzYtiyZRWO3LHVyPJCnnx7GJFQIH6VGuxKiSoUkn/ZVurpFPHqhYGJtZ/94+WbtiF9y8rKHzZc4Gxe/FWMqVPj3dptJyEq3rmCerutbBqjuIKtunIg5Sp+OczN3KRUn5ria1xVDX9SdjUwvdX7la0dqgLa9YBr5/RJzCdBh18zpogbU4RS2qRHxV69xWxaJidX1BG7Ya+kbg3/K946gkFYF5K5+3/P3cHeuZzQ2ZatWRH3VfDchI0uLaSFxy7rTFMMCcGCSqGSIb3DQEJFDEaHhgAcABpAGsAbQBpAG4AdwBhAGwAawBlAHIwIQYJKoZIhvcNAQkVMRQEElRpbWUgMTc5MjgwMTE5MDgxNjCCBDEGCSqGSIb3DQEHBqCCBCIwggQeAgEAMIIEFwYJKoZIhvcNAQcBMGYGCSqGSIb3DQEFDTBZMDgGCSqGSIb3DQEFDDArBBQTnYTxx7dukksPYywCUZciZrEnSQICJxACASAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEEmIJQAXm/qf4sqhF9gVRE6AggOggeaSb7y8FI8sZv4sAX4Zdg9FGQocJmV5eZW9chh6LnVmzBDlobsIEqZPad+6eXGz2rwB9HgZ7w+U+BQJhPltIbPjYssVS7tecpL9x0qeQp3K8VD2cY71zVF35/mZ86jV4xGU1U92WjQ9/at52lfg6v21eyXqVOtktziy/Fg5c1m6I57kPShZIb1t+TW+SIU0j6GuyoFF0a7Rl+kh1fZTpqXt0q80njvpScPgs2lZwTBnCKyFhAMexcQs0Rvl10tv9tsm+HtQWvvY/ocP00HYCSs3WKb4WQx+oMnoR+2c4psw9FRppfjdtaFSV7nK9zjZV/A6zCBRB+16QFcmGiBgHvrAHXySXxvLRzQ4yE+mEj5wjLldWLoCP8y+SzGIPo53gZMWOOjCPbhLN/20JJHzViLiBX5Moa0T7vYcLu6YpRc6vmeAHI9NcHchskPDwzHFN7Ifyqy1y2gDZnggIeRRxiDWy/WhpiGI5Unow1wB65pehcmppZS/Op8GXvNerZyz/448XRG3/jcR8k6LGBfT6yKt9sO3TIwSAtMi1VxxI1W1v8EfFR7fV9SdNEZHLc+cYOuC4QrTsad++hbfSgN8a7XcHKVo1HycemQYEZWVQlICNXxJePcHx91ZQnx7DWwoUxvKx2mPFPTqlUUAkkVNSBJY1bVJQ3GZP5cNmtzy2jaeI1G7x17Lh+vivFOV4m1WL/8FxJrgChpru0sahGIPyHnuvWPUh7BCUbcz4aU7LQ8ZRLOobh0+lJ0cv49qSI//F8ZGRKbdQwI1VGQwz+DDOFNHms79XsjHbi6zftkMXEzWEmTkFkzPHCJm1vtJYgetlZD9zfORZ8/fcddamgLJXhdOE8DN9y7OjLgEKUdRV0PXWX9O5rMawoff0dmQSViE1SMrqYjZGENjnXT4n+1bCf2dOsCTUftb74bMFCc4ULTZNzcUfYGP25MCqwZUXmYLYb5S5WmLrridZ08BTxkwNVFvLFKCmm2RWoBv+88J/iitzQ+hp/l+yPLLCz+GJEwQs7yhEA4olZR6L2FsCIKvVsl2QHQyjDgljuPK1ZBWY4xrunuDB4XSSt7DRL7SM6OY5p+0nbzoHHgd+COqqKPOCzafdAIC45OdMawAFho9fWYJ5pcqxwo8JENi5ij83CfBxNL8xJclW/rJHq99jMwKQ9thljGxxkY2aTdf9TIDfVkTebM9Bbs7yNqMXnMKnE3vYcnJ4LzUChKSVBp+W//gpDBNMDEwDQYJYIZIAWUDBAIBBQAEIAHY0QqFOGqHyr3xx8HKyb80gM4XXz8mhRclyUGjW/9dBBQ+H7GAwBHTPg5N4gF5RJtv/5a5PAICJxA=' | base64 -d > app/release.jks
