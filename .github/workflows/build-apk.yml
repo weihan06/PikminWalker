@@ -103,6 +103,8 @@ jobs:
               implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
               implementation("androidx.recyclerview:recyclerview:1.3.2")
+              // 手機上的中文文字辨識（種花計數用，不需網路）
+              implementation("com.google.mlkit:text-recognition-chinese:16.0.0")
               // OpenStreetMap 地圖，不需要 Google Maps API key
               implementation("org.osmdroid:osmdroid-android:6.1.18")
           }
@@ -122,6 +124,7 @@ jobs:
                   tools:ignore="MockLocation,ProtectedPermissions" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
               <application
@@ -163,6 +166,11 @@ jobs:
                       android:name=".MockLocationService"
                       android:exported="false"
                       android:foregroundServiceType="location" />
+
+                  <service
+                      android:name=".FlowerCounterService"
+                      android:exported="false"
+                      android:foregroundServiceType="mediaProjection" />
               </application>
           </manifest>
           __PW_EOF__
@@ -326,6 +334,7 @@ jobs:
               companion object {
                   const val EXTRA_CAND_LAT = "cand_lat"
                   const val EXTRA_CAND_LNG = "cand_lng"
+                  const val EXTRA_CAND_NAME = "cand_name"
                   const val RESULT_LAT = "lat"
                   const val RESULT_LNG = "lng"
                   const val RESULT_NAME = "name"
@@ -342,6 +351,7 @@ jobs:
               private var folderId = FavoritesStore.DEFAULT_ID
               private var candLat: Double? = null
               private var candLng: Double? = null
+              private var candName = ""
 
               private val prefs by lazy { getSharedPreferences("walker", MODE_PRIVATE) }
 
@@ -368,6 +378,7 @@ jobs:
                   if (intent.hasExtra(EXTRA_CAND_LAT)) {
                       candLat = intent.getDoubleExtra(EXTRA_CAND_LAT, 0.0)
                       candLng = intent.getDoubleExtra(EXTRA_CAND_LNG, 0.0)
+                      candName = intent.getStringExtra(EXTRA_CAND_NAME) ?: ""
                   }
 
                   folderId = prefs.getString(PREF_FOLDER, FavoritesStore.DEFAULT_ID) ?: FavoritesStore.DEFAULT_ID
@@ -392,9 +403,12 @@ jobs:
 
                   val btnAdd = findViewById<Button>(R.id.btnAddHere)
                   if (candLat == null) {
-                      btnAdd.text = "＋ 輸入座標收藏"
+                      btnAdd.text = "＋ 地名或座標收藏"
+                  } else if (candName.isNotEmpty()) {
+                      btnAdd.text = "＋ 收藏「$candName」"
                   }
                   btnAdd.setOnClickListener { addHere() }
+                  findViewById<Button>(R.id.btnSearchAdd).setOnClickListener { searchAdd() }
 
                   rebuildChips()
                   refreshList()
@@ -545,17 +559,30 @@ jobs:
                   val lat = candLat
                   val lng = candLng
                   if (lat != null && lng != null) {
-                      FavoriteDialogs.addFavorite(this, lat, lng, folderId) { fav ->
+                      FavoriteDialogs.addFavorite(this, lat, lng, folderId, candName) { fav ->
                           selectFolder(fav.folderId)
                       }
                       return
                   }
-                  // 沒有目前位置 → 手動輸入座標
-                  FavoriteDialogs.input(this, "輸入座標", "", "緯度, 經度（可貼 Google 地圖座標）") { s ->
-                      val p = FavoritesStore.parseText(s).firstOrNull()?.items?.firstOrNull()
-                      if (p == null) { toast("座標格式錯誤，請輸入「緯度, 經度」"); return@input }
-                      FavoriteDialogs.addFavorite(this, p.second, p.third, folderId) { fav ->
-                          selectFolder(fav.folderId)
+                  // 沒有目前位置 → 輸入地名或座標
+                  searchAdd()
+              }
+
+              /** 輸入地名（中文可）或座標 → 收藏 */
+              private fun searchAdd() {
+                  FavoriteDialogs.input(this, "搜尋地點收藏", "", "地名或座標，例：赤崁樓") { s ->
+                      if (s.isEmpty()) return@input
+                      val c = PlaceSearch.parseCoord(s)
+                      if (c != null) {
+                          FavoriteDialogs.addFavorite(this, c.first, c.second, folderId) { fav ->
+                              selectFolder(fav.folderId)
+                          }
+                          return@input
+                      }
+                      PlaceSearch.searchAndPick(this, s) { place ->
+                          FavoriteDialogs.addFavorite(this, place.lat, place.lng, folderId, place.name) { fav ->
+                              selectFolder(fav.folderId)
+                          }
                       }
                   }
               }
@@ -1003,6 +1030,462 @@ jobs:
           }
           __PW_EOF__
           mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/FlowerCounterService.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.app.Activity
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.graphics.Bitmap
+          import android.graphics.PixelFormat
+          import android.hardware.display.DisplayManager
+          import android.hardware.display.VirtualDisplay
+          import android.media.ImageReader
+          import android.media.projection.MediaProjection
+          import android.media.projection.MediaProjectionManager
+          import android.os.Build
+          import android.os.Handler
+          import android.os.HandlerThread
+          import android.os.IBinder
+          import android.os.Looper
+          import android.os.SystemClock
+          import android.util.DisplayMetrics
+          import android.view.Display
+          import androidx.core.app.NotificationCompat
+          import com.google.mlkit.vision.common.InputImage
+          import com.google.mlkit.vision.text.TextRecognition
+          import com.google.mlkit.vision.text.TextRecognizer
+          import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+
+          /**
+           * 種花計數：定時擷取螢幕 → 手機上辨識「種植的花朵總數」→
+           * 達到目標時暫停／停止路線；一段時間沒增加時提醒（花瓣可能用完）。
+           * 畫面只在手機上處理，不會上傳或存檔。
+           */
+          class FlowerCounterService : Service() {
+
+              companion object {
+                  const val ACTION_START = "start"
+                  const val ACTION_STOP = "stop"
+                  const val ACTION_UPDATE = "update"
+
+                  const val EXTRA_RESULT_CODE = "code"
+                  const val EXTRA_RESULT_DATA = "data"
+                  const val EXTRA_TARGET = "target"
+                  const val EXTRA_ON_TARGET = "on_target"     // 0=暫停路線 1=停止模擬 2=只通知
+                  const val EXTRA_INTERVAL = "interval"       // 秒
+                  const val EXTRA_STALL_MIN = "stall_min"     // 0=不提醒
+                  const val EXTRA_STALL_PAUSE = "stall_pause"
+
+                  private const val CH_RUN = "flower_run"
+                  private const val CH_ALERT = "flower_alert"
+                  private const val NOTIFY_RUN = 2
+                  private const val NOTIFY_ALERT = 3
+              }
+
+              // 設定
+              private var target = 0
+              private var onTarget = 0
+              private var intervalMs = 5000L
+              private var stallMs = 3 * 60_000L
+              private var stallPause = false
+
+              // 擷取
+              private var projection: MediaProjection? = null
+              private var virtualDisplay: VirtualDisplay? = null
+              private var reader: ImageReader? = null
+              private var recognizer: TextRecognizer? = null
+              private val worker = HandlerThread("flower-capture").apply { start() }
+              private val bg = Handler(worker.looper)
+              private val main = Handler(Looper.getMainLooper())
+              @Volatile private var busy = false
+              private var capW = 0
+              private var capH = 0
+
+              // 狀態
+              private var count: Int? = null
+              private var pending: Int? = null
+              private var lastChange = 0L
+              private var lastSeen = 0L
+              private var targetDone = false
+              private var stallNotified = false
+
+              private val tick = object : Runnable {
+                  override fun run() {
+                      captureOnce()
+                      checkStall()
+                      bg.postDelayed(this, intervalMs)
+                  }
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  createChannels()
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  when (intent?.action) {
+                      ACTION_START -> {
+                          readSettings(intent)
+                          // Android 14 起：必須先成為「螢幕擷取」前景服務，才能取得擷取權限
+                          startAsForeground()
+                          val code = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
+                          @Suppress("DEPRECATION")
+                          val data: Intent? = if (Build.VERSION.SDK_INT >= 33)
+                              intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+                          else intent.getParcelableExtra(EXTRA_RESULT_DATA)
+                          if (data == null || !startCapture(code, data)) {
+                              MockState.flowerInfo.value = "❌ 無法擷取螢幕"
+                              stopSelf()
+                              return START_NOT_STICKY
+                          }
+                      }
+                      ACTION_UPDATE -> {
+                          readSettings(intent)
+                          targetDone = (count ?: 0) >= target && target > 0
+                          updateRunNotification()
+                      }
+                      ACTION_STOP -> {
+                          stopSelf()
+                          return START_NOT_STICKY
+                      }
+                  }
+                  return START_NOT_STICKY
+              }
+
+              private fun readSettings(i: Intent) {
+                  target = i.getIntExtra(EXTRA_TARGET, 0)
+                  onTarget = i.getIntExtra(EXTRA_ON_TARGET, 0)
+                  intervalMs = i.getIntExtra(EXTRA_INTERVAL, 5).coerceIn(2, 120) * 1000L
+                  stallMs = i.getIntExtra(EXTRA_STALL_MIN, 3).coerceAtLeast(0) * 60_000L
+                  stallPause = i.getBooleanExtra(EXTRA_STALL_PAUSE, false)
+                  MockState.flowerTarget.value = target
+              }
+
+              // ---------------- 擷取螢幕 ----------------
+
+              private fun startCapture(code: Int, data: Intent): Boolean {
+                  return try {
+                      val mpm = getSystemService(MediaProjectionManager::class.java)
+                      val mp = mpm.getMediaProjection(code, data) ?: return false
+                      projection = mp
+                      // Android 14 起必須先註冊 callback
+                      mp.registerCallback(object : MediaProjection.Callback() {
+                          override fun onStop() {
+                              // 使用者從狀態列停止分享螢幕
+                              main.post { stopSelf() }
+                          }
+                      }, main)
+
+                      val metrics = DisplayMetrics()
+                      val display = getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
+                      @Suppress("DEPRECATION")
+                      display.getRealMetrics(metrics)
+                      // 用 0.6 倍解析度擷取，省電又夠辨識數字
+                      capW = (metrics.widthPixels * 0.6).toInt().coerceAtLeast(240)
+                      capH = (metrics.heightPixels * 0.6).toInt().coerceAtLeast(320)
+                      val dpi = (metrics.densityDpi * 0.6).toInt().coerceAtLeast(120)
+
+                      val r = ImageReader.newInstance(capW, capH, PixelFormat.RGBA_8888, 2)
+                      reader = r
+                      virtualDisplay = mp.createVirtualDisplay(
+                          "flower-counter", capW, capH, dpi,
+                          DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                          r.surface, null, bg
+                      )
+                      recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+
+                      count = null; pending = null
+                      lastChange = SystemClock.elapsedRealtime()
+                      lastSeen = 0L
+                      targetDone = false; stallNotified = false
+                      MockState.flowerWatching.value = true
+                      MockState.flowerCount.value = null
+                      MockState.flowerInfo.value = "等待皮克敏的種花畫面…"
+                      bg.postDelayed(tick, 1500)
+                      true
+                  } catch (e: Exception) {
+                      false
+                  }
+              }
+
+              /** 在背景執行緒：抓一張畫面 → 裁出上方 → 交給文字辨識 */
+              private fun captureOnce() {
+                  if (busy) return
+                  val r = reader ?: return
+                  val img = try { r.acquireLatestImage() } catch (_: Exception) { null } ?: return
+                  val bmp: Bitmap? = try {
+                      val plane = img.planes[0]
+                      val pixelStride = plane.pixelStride
+                      val rowStride = plane.rowStride
+                      val full = Bitmap.createBitmap(rowStride / pixelStride, img.height, Bitmap.Config.ARGB_8888)
+                      full.copyPixelsFromBuffer(plane.buffer)
+                      // 「種植的花朵總數」在畫面上方，只辨識上方 30% 比較快也比較準
+                      val cropH = (img.height * 0.30).toInt().coerceAtLeast(1)
+                      val cropped = Bitmap.createBitmap(full, 0, 0, img.width.coerceAtMost(full.width), cropH)
+                      if (cropped !== full) full.recycle()
+                      cropped
+                  } catch (_: Exception) {
+                      null
+                  } finally {
+                      img.close()
+                  }
+                  if (bmp == null) return
+
+                  val rec = recognizer ?: return
+                  busy = true
+                  rec.process(InputImage.fromBitmap(bmp, 0))
+                      .addOnSuccessListener { text ->
+                          val lines = text.textBlocks.flatMap { b -> b.lines }
+                              .mapNotNull { l -> l.boundingBox?.let { FlowerParser.Line(l.text, it) } }
+                          onReading(FlowerParser.parse(lines))
+                      }
+                      .addOnCompleteListener {
+                          busy = false
+                          bmp.recycle()
+                      }
+              }
+
+              // ---------------- 判斷 ----------------
+
+              /** 在主執行緒處理辨識結果 */
+              private fun onReading(v: Int?) {
+                  val now = SystemClock.elapsedRealtime()
+                  if (v == null) {
+                      if (lastSeen == 0L || now - lastSeen > 15_000) {
+                          MockState.flowerInfo.value = "看不到「種植的花朵總數」，請切到皮克敏的種花畫面"
+                      }
+                      return
+                  }
+                  lastSeen = now
+
+                  // 防止辨識錯誤：增加合理就接受；變小或暴增要連續看到兩次才接受（例如重新開始種花）
+                  val last = count
+                  val accept = when {
+                      last == null -> true
+                      v == last -> true
+                      v > last && v - last <= 2000 -> true
+                      v == pending -> true
+                      else -> false
+                  }
+                  if (!accept) { pending = v; return }
+                  pending = null
+
+                  if (v != last) {
+                      lastChange = now
+                      if (stallNotified) {
+                          stallNotified = false
+                          cancelAlert()
+                      }
+                  }
+                  count = v
+                  MockState.flowerCount.value = v
+                  MockState.flowerInfo.value = ""
+                  updateRunNotification()
+
+                  if (target > 0 && v >= target && !targetDone) {
+                      targetDone = true
+                      reachTarget(v)
+                  }
+              }
+
+              private fun reachTarget(v: Int) {
+                  val what = when (onTarget) {
+                      0 -> { if (MockState.walking.value) sendToMock(MockLocationService.ACTION_PAUSE); "已暫停路線" }
+                      1 -> { sendToMock(MockLocationService.ACTION_STOP); "已停止模擬" }
+                      else -> "繼續移動中"
+                  }
+                  alert("🌸 已種滿 $v 朵！", "達到目標 $target 朵，$what")
+              }
+
+              private fun checkStall() {
+                  main.post {
+                      if (stallMs <= 0 || stallNotified || count == null) return@post
+                      if (!MockState.walking.value || MockState.paused.value) {
+                          // 沒在走路時不算停滯
+                          lastChange = SystemClock.elapsedRealtime()
+                          return@post
+                      }
+                      val idle = SystemClock.elapsedRealtime() - lastChange
+                      if (idle >= stallMs) {
+                          stallNotified = true
+                          if (stallPause) sendToMock(MockLocationService.ACTION_PAUSE)
+                          alert(
+                              "🌸 種花數 ${idle / 60000} 分鐘沒增加",
+                              "停在 ${count} 朵，花瓣可能用完了" + if (stallPause) "，已暫停路線" else ""
+                          )
+                      }
+                  }
+              }
+
+              private fun sendToMock(action: String) {
+                  try {
+                      startService(Intent(this, MockLocationService::class.java).setAction(action))
+                  } catch (_: Exception) {
+                  }
+              }
+
+              // ---------------- 通知 ----------------
+
+              private fun createChannels() {
+                  val nm = getSystemService(NotificationManager::class.java)
+                  nm.createNotificationChannel(NotificationChannel(CH_RUN, "種花計數", NotificationManager.IMPORTANCE_LOW))
+                  nm.createNotificationChannel(NotificationChannel(CH_ALERT, "種花提醒", NotificationManager.IMPORTANCE_HIGH))
+              }
+
+              private fun runNotification(): Notification {
+                  val open = PendingIntent.getActivity(
+                      this, 10, Intent(this, MainActivity::class.java),
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+                  val stop = PendingIntent.getService(
+                      this, 11, Intent(this, FlowerCounterService::class.java).setAction(ACTION_STOP),
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+                  val c = count
+                  val text = when {
+                      c == null -> "等待種花畫面…"
+                      target > 0 -> "已種 $c / $target 朵"
+                      else -> "已種 $c 朵"
+                  }
+                  return NotificationCompat.Builder(this, CH_RUN)
+                      .setSmallIcon(R.drawable.ic_notify)
+                      .setContentTitle("🌸 種花計數中")
+                      .setContentText(text)
+                      .setOngoing(true)
+                      .setOnlyAlertOnce(true)
+                      .setContentIntent(open)
+                      .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止計數", stop)
+                      .build()
+              }
+
+              private fun startAsForeground() {
+                  val n = runNotification()
+                  if (Build.VERSION.SDK_INT >= 29) {
+                      startForeground(NOTIFY_RUN, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+                  } else {
+                      startForeground(NOTIFY_RUN, n)
+                  }
+              }
+
+              private fun updateRunNotification() {
+                  try {
+                      getSystemService(NotificationManager::class.java).notify(NOTIFY_RUN, runNotification())
+                  } catch (_: Exception) {
+                  }
+              }
+
+              private fun alert(title: String, body: String) {
+                  val open = PendingIntent.getActivity(
+                      this, 12, Intent(this, MainActivity::class.java),
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+                  val n = NotificationCompat.Builder(this, CH_ALERT)
+                      .setSmallIcon(R.drawable.ic_notify)
+                      .setContentTitle(title)
+                      .setContentText(body)
+                      .setPriority(NotificationCompat.PRIORITY_HIGH)
+                      .setDefaults(NotificationCompat.DEFAULT_ALL)
+                      .setAutoCancel(true)
+                      .setContentIntent(open)
+                      .build()
+                  try {
+                      getSystemService(NotificationManager::class.java).notify(NOTIFY_ALERT, n)
+                  } catch (_: Exception) {
+                  }
+                  MockState.status.value = "$title：$body"
+              }
+
+              private fun cancelAlert() {
+                  getSystemService(NotificationManager::class.java).cancel(NOTIFY_ALERT)
+              }
+
+              override fun onDestroy() {
+                  bg.removeCallbacksAndMessages(null)
+                  try { virtualDisplay?.release() } catch (_: Exception) {}
+                  try { projection?.stop() } catch (_: Exception) {}
+                  try { reader?.close() } catch (_: Exception) {}
+                  try { recognizer?.close() } catch (_: Exception) {}
+                  worker.quitSafely()
+                  MockState.flowerWatching.value = false
+                  MockState.flowerInfo.value = ""
+                  super.onDestroy()
+              }
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/FlowerParser.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.graphics.Rect
+
+          /**
+           * 從文字辨識結果找出「種植的花朵總數」上方的數字。
+           * 畫面上是：
+           *        20
+           *   種植的花朵總數
+           * 數字在標籤正上方（水平位置重疊），右邊另一個「0 / 已達到獲得上限」不能誤抓。
+           */
+          object FlowerParser {
+
+              class Line(val text: String, val box: Rect)
+
+              private val labelKeys = listOf("花朵總數", "種植的花", "种植的花", "花朵总数", "flowers planted")
+
+              fun isLabel(t: String): Boolean {
+                  val s = t.replace(" ", "").lowercase()
+                  return labelKeys.any { s.contains(it.replace(" ", "")) }
+              }
+
+              /** OCR 常把 0 看成 O、1 看成 l 等，修正後若全是數字就回傳數值 */
+              fun toNumber(t: String): Int? {
+                  val s = t.trim()
+                      .replace(",", "").replace("，", "").replace(".", "").replace(" ", "")
+                      .replace('O', '0').replace('o', '0').replace('D', '0')
+                      .replace('l', '1').replace('I', '1').replace('|', '1')
+                      .replace('S', '5').replace('B', '8')
+                  if (s.isEmpty() || s.length > 7 || !s.all { it.isDigit() }) return null
+                  return s.toIntOrNull()
+              }
+
+              fun parse(lines: List<Line>): Int? {
+                  val label = lines.firstOrNull { isLabel(it.text) } ?: return null
+                  val lb = label.box
+
+                  // 標籤同一行裡就有數字（例如「種植的花朵總數 20」）
+                  Regex("""(\d[\d,]*)""").findAll(label.text).lastOrNull()?.let { m ->
+                      toNumber(m.value)?.let { return it }
+                  }
+
+                  val h = maxOf(lb.height(), 1)
+                  var best: Int? = null
+                  var bestGap = Int.MAX_VALUE
+                  for (l in lines) {
+                      if (l === label) continue
+                      val n = toNumber(l.text) ?: continue
+                      val b = l.box
+                      // 要在標籤上方（允許些微重疊）
+                      if (b.centerY() >= lb.centerY()) continue
+                      val gap = lb.top - b.bottom
+                      if (gap > h * 3) continue
+                      // 水平位置要跟標籤重疊
+                      val overlap = minOf(b.right, lb.right) - maxOf(b.left, lb.left)
+                      if (overlap <= 0) continue
+                      if (gap < bestGap) { bestGap = gap; best = n }
+                  }
+                  return best
+              }
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
           cat > app/src/main/java/com/example/pikminwalker/MainActivity.kt <<'__PW_EOF__'
           package com.example.pikminwalker
 
@@ -1026,7 +1509,14 @@ jobs:
           import android.os.SystemClock
           import android.os.Process
           import android.provider.Settings
+          import android.media.projection.MediaProjectionManager
+          import android.text.InputType
           import android.view.View
+          import android.widget.LinearLayout
+          import android.widget.RadioButton
+          import android.widget.RadioGroup
+          import android.view.inputmethod.EditorInfo
+          import android.view.inputmethod.InputMethodManager
           import android.widget.Button
           import android.widget.CheckBox
           import android.widget.EditText
@@ -1074,6 +1564,8 @@ jobs:
               private val waypointMarkers = mutableListOf<Marker>()
               private lateinit var routeLine: Polyline
               private var firstFix = true
+              /** 最近一次搜尋到的地點（收藏時自動帶入名稱） */
+              private var lastSearch: Pair<GeoPoint, String>? = null
               private lateinit var btnLayer: Button
 
               // ---- 沒模擬時：顯示真實 GPS ----
@@ -1139,6 +1631,114 @@ jobs:
                       toast(if (routeMode) "已加入路線點：$name" else "目的地：$name，按「移動到這裡」即可前往")
                   }
 
+              // ---------------- 種花計數 ----------------
+
+              private val captureLauncher =
+                  registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+                      val data = r.data
+                      if (r.resultCode == RESULT_OK && data != null) {
+                          val i = flowerIntent(FlowerCounterService.ACTION_START)
+                              .putExtra(FlowerCounterService.EXTRA_RESULT_CODE, r.resultCode)
+                              .putExtra(FlowerCounterService.EXTRA_RESULT_DATA, data)
+                          ContextCompat.startForegroundService(this, i)
+                          toast("開始種花計數，請切到皮克敏開始種花")
+                      } else {
+                          toast("沒有允許擷取螢幕，無法計數")
+                      }
+                  }
+
+              private fun flowerIntent(action: String): Intent =
+                  Intent(this, FlowerCounterService::class.java).setAction(action)
+                      .putExtra(FlowerCounterService.EXTRA_TARGET, prefs.getInt("fl_target", 1000))
+                      .putExtra(FlowerCounterService.EXTRA_ON_TARGET, prefs.getInt("fl_on_target", 0))
+                      .putExtra(FlowerCounterService.EXTRA_INTERVAL, prefs.getInt("fl_interval", 5))
+                      .putExtra(FlowerCounterService.EXTRA_STALL_MIN, prefs.getInt("fl_stall", 3))
+                      .putExtra(FlowerCounterService.EXTRA_STALL_PAUSE, prefs.getBoolean("fl_stall_pause", false))
+
+              private fun onFlowerButton() {
+                  if (MockState.flowerWatching.value) {
+                      AlertDialog.Builder(this)
+                          .setTitle("🌸 種花計數中")
+                          .setItems(arrayOf("修改設定", "停止計數")) { _, i ->
+                              if (i == 0) showFlowerSettings(start = false)
+                              else startService(Intent(this, FlowerCounterService::class.java)
+                                  .setAction(FlowerCounterService.ACTION_STOP))
+                          }
+                          .show()
+                  } else {
+                      showFlowerSettings(start = true)
+                  }
+              }
+
+              private fun showFlowerSettings(start: Boolean) {
+                  fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+                  fun label(t: String) = TextView(this).apply {
+                      text = t; setPadding(0, dp(12), 0, 0); setTextColor(Color.parseColor("#444444"))
+                  }
+                  fun numberField(v: Int) = EditText(this).apply {
+                      inputType = InputType.TYPE_CLASS_NUMBER
+                      setText(v.toString())
+                      isSingleLine = true
+                  }
+
+                  val etTarget = numberField(prefs.getInt("fl_target", 1000))
+                  val rg = RadioGroup(this)
+                  val opts = listOf("暫停路線散步", "停止模擬", "只通知，繼續走")
+                  opts.forEachIndexed { i, t ->
+                      rg.addView(RadioButton(this).apply { id = 1000 + i; text = t })
+                  }
+                  rg.check(1000 + prefs.getInt("fl_on_target", 0))
+                  val etInterval = numberField(prefs.getInt("fl_interval", 5))
+                  val etStall = numberField(prefs.getInt("fl_stall", 3))
+                  val cbStallPause = CheckBox(this).apply {
+                      text = "沒增加時也暫停路線"
+                      isChecked = prefs.getBoolean("fl_stall_pause", false)
+                  }
+
+                  val box = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(20), dp(4), dp(20), 0)
+                      if (start) addView(TextView(this@MainActivity).apply {
+                          text = "App 會定時擷取螢幕，在手機上辨識皮克敏畫面上方的「種植的花朵總數」，畫面不會上傳或存檔。\n\n" +
+                              "按「開始」後系統會詢問要分享哪個畫面：選「整個畫面」，或選「單一應用程式 → Pikmin Bloom」。"
+                          setTextColor(Color.parseColor("#666666"))
+                          textSize = 13f
+                      })
+                      addView(label("目標朵數（0 = 不設定）"))
+                      addView(etTarget)
+                      addView(label("達到目標時"))
+                      addView(rg)
+                      addView(label("每幾秒辨識一次（2～120）"))
+                      addView(etInterval)
+                      addView(label("走路中幾分鐘沒增加就提醒（0 = 不提醒）"))
+                      addView(etStall)
+                      addView(cbStallPause)
+                  }
+                  val scroll = android.widget.ScrollView(this).apply { addView(box) }
+
+                  AlertDialog.Builder(this)
+                      .setTitle(if (start) "🌸 種花計數" else "🌸 修改種花計數設定")
+                      .setView(scroll)
+                      .setPositiveButton(if (start) "開始" else "儲存") { _, _ ->
+                          prefs.edit()
+                              .putInt("fl_target", etTarget.text.toString().toIntOrNull()?.coerceAtLeast(0) ?: 0)
+                              .putInt("fl_on_target", (rg.checkedRadioButtonId - 1000).coerceIn(0, 2))
+                              .putInt("fl_interval", etInterval.text.toString().toIntOrNull()?.coerceIn(2, 120) ?: 5)
+                              .putInt("fl_stall", etStall.text.toString().toIntOrNull()?.coerceAtLeast(0) ?: 3)
+                              .putBoolean("fl_stall_pause", cbStallPause.isChecked)
+                              .apply()
+                          if (start) {
+                              val mpm = getSystemService(MediaProjectionManager::class.java)
+                              captureLauncher.launch(mpm.createScreenCaptureIntent())
+                          } else {
+                              startService(flowerIntent(FlowerCounterService.ACTION_UPDATE))
+                              toast("已更新設定")
+                          }
+                      }
+                      .setNegativeButton("取消", null)
+                      .show()
+              }
+
               private fun openFavorites() {
                   val i = Intent(this, FavoritesActivity::class.java)
                   // 給收藏頁一個「目前位置」：目的地 > 模擬位置 > 真實 GPS
@@ -1153,6 +1753,12 @@ jobs:
                   if (cand != null) {
                       i.putExtra(FavoritesActivity.EXTRA_CAND_LAT, cand.first)
                       i.putExtra(FavoritesActivity.EXTRA_CAND_LNG, cand.second)
+                      // 如果是剛搜尋到的地點，順便帶入名稱
+                      lastSearch?.let { (gp, name) ->
+                          if (Math.abs(gp.latitude - cand.first) < 1e-7 && Math.abs(gp.longitude - cand.second) < 1e-7) {
+                              i.putExtra(FavoritesActivity.EXTRA_CAND_NAME, name)
+                          }
+                      }
                   }
                   favLauncher.launch(i)
               }
@@ -1320,7 +1926,13 @@ jobs:
                   }
 
                   findViewById<Button>(R.id.btnGo).setOnClickListener { goToTypedCoord() }
+                  etCoord.setOnEditorActionListener { _, actionId, _ ->
+                      if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
+                          goToTypedCoord(); true
+                      } else false
+                  }
                   findViewById<Button>(R.id.btnFav).setOnClickListener { openFavorites() }
+                  findViewById<Button>(R.id.btnFlower).setOnClickListener { onFlowerButton() }
                   btnLayer.setOnClickListener {
                       tileIdx = (tileIdx + 1) % tileSources.size
                       prefs.edit().putInt("tile_idx", tileIdx).apply()
@@ -1330,19 +1942,32 @@ jobs:
                   findViewById<Button>(R.id.btnClear).setOnClickListener { clearRoute() }
               }
 
-              /** 解析「22.99, 120.21」這類座標（可直接貼 Google 地圖複製的座標） */
+              /** 輸入框：座標（可貼 Google 地圖複製的座標）直接放上地圖；其他文字當地名搜尋 */
               private fun goToTypedCoord() {
-                  val parts = etCoord.text.toString()
-                      .replace("(", "").replace(")", "")
-                      .split(",", " ", "，").filter { it.isNotBlank() }
-                  val lat = parts.getOrNull(0)?.toDoubleOrNull()
-                  val lng = parts.getOrNull(1)?.toDoubleOrNull()
-                  if (lat == null || lng == null || lat !in -90.0..90.0 || lng !in -180.0..180.0) {
-                      toast("座標格式錯誤，請輸入「緯度, 經度」"); return
+                  val text = etCoord.text.toString().trim()
+                  if (text.isEmpty()) { toast("請輸入地名或座標"); return }
+                  hideKeyboard()
+                  val c = PlaceSearch.parseCoord(text)
+                  if (c != null) {
+                      val p = GeoPoint(c.first, c.second)
+                      map.controller.animateTo(p)
+                      onMapTap(p)
+                      return
                   }
-                  val p = GeoPoint(lat, lng)
-                  map.controller.animateTo(p)
-                  onMapTap(p)
+                  PlaceSearch.searchAndPick(this, text) { place ->
+                      val p = GeoPoint(place.lat, place.lng)
+                      lastSearch = p to place.name
+                      map.controller.setZoom(17.0)
+                      map.controller.animateTo(p)
+                      onMapTap(p)
+                      toast(if (routeMode) "已加入路線點：${place.name}" else "目的地：${place.name}")
+                  }
+              }
+
+              private fun hideKeyboard() {
+                  val imm = getSystemService(InputMethodManager::class.java)
+                  imm?.hideSoftInputFromWindow(etCoord.windowToken, 0)
+                  etCoord.clearFocus()
               }
 
               private fun teleport() {
@@ -1423,10 +2048,28 @@ jobs:
                                       else if (real.isNotEmpty()) append("\n").append(real)
                                       if (w && r > 0) append("\n剩餘 %.0f 公尺".format(r))
                                   }
-                              }.collect { tvStatus.text = it }
+                              }.combine(
+                                  combine(MockState.flowerWatching, MockState.flowerCount,
+                                      MockState.flowerTarget, MockState.flowerInfo) { fw, fc, ft, fi ->
+                                      if (!fw) "" else buildString {
+                                          append("🌸 已種 ").append(fc?.toString() ?: "?")
+                                          if (ft > 0) append(" / ").append(ft)
+                                          append(" 朵")
+                                          if (fi.isNotEmpty()) append("（").append(fi).append("）")
+                                      }
+                                  }
+                              ) { base, flower -> if (flower.isEmpty()) base else base + "\n" + flower }
+                                  .collect { tvStatus.text = it }
                           }
                           launch {
                               MockState.paused.collect { btnPause.text = if (it) "繼續" else "暫停" }
+                          }
+                          launch {
+                              val btnFlower = findViewById<Button>(R.id.btnFlower)
+                              combine(MockState.flowerWatching, MockState.flowerCount) { w, c -> w to c }
+                                  .collect { (w, c) ->
+                                      btnFlower.text = if (w) "🌸\n${c ?: "…"}" else "🌸\n計數"
+                                  }
                           }
                       }
                   }
@@ -1963,8 +2606,155 @@ jobs:
               /** 是否暫停 */
               val paused = MutableStateFlow(false)
 
+              /** 種花計數：是否正在擷取螢幕辨識 */
+              val flowerWatching = MutableStateFlow(false)
+
+              /** 種花計數：目前辨識到的「種植的花朵總數」 */
+              val flowerCount = MutableStateFlow<Int?>(null)
+
+              /** 種花計數：目標朵數（0 = 不設定） */
+              val flowerTarget = MutableStateFlow(0)
+
+              /** 種花計數：提示文字（看不到畫面等） */
+              val flowerInfo = MutableStateFlow("")
+
               /** 路線剩餘距離（公尺） */
               val remainingMeters = MutableStateFlow(0.0)
+          }
+          __PW_EOF__
+          mkdir -p app/src/main/java/com/example/pikminwalker
+          cat > app/src/main/java/com/example/pikminwalker/PlaceSearch.kt <<'__PW_EOF__'
+          package com.example.pikminwalker
+
+          import android.content.Context
+          import android.location.Geocoder
+          import android.location.Location
+          import android.widget.Toast
+          import androidx.appcompat.app.AlertDialog
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.lifecycle.lifecycleScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withContext
+          import org.json.JSONArray
+          import java.net.HttpURLConnection
+          import java.net.URL
+          import java.net.URLEncoder
+          import java.util.Locale
+
+          /**
+           * 用地名查座標（支援中文）：
+           *  1. 先用手機內建的 Geocoder（有 Google Play 服務的手機會用 Google 的資料）
+           *  2. 結果太少時，再查 OpenStreetMap 的 Nominatim
+           */
+          object PlaceSearch {
+
+              class Place(val name: String, val address: String, val lat: Double, val lng: Double)
+
+              private const val UA = "PikminWalker/1.0 (+https://github.com/weihan06/PikminWalker)"
+
+              /** 判斷輸入是不是「緯度, 經度」；是的話回傳座標 */
+              fun parseCoord(text: String): Pair<Double, Double>? {
+                  val m = Regex("""^\s*\(?\s*(-?\d{1,3}(?:\.\d+)?)\s*[,，\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*\)?\s*$""")
+                      .find(text) ?: return null
+                  val lat = m.groupValues[1].toDoubleOrNull() ?: return null
+                  val lng = m.groupValues[2].toDoubleOrNull() ?: return null
+                  if (lat !in -90.0..90.0 || lng !in -180.0..180.0) return null
+                  return lat to lng
+              }
+
+              suspend fun search(ctx: Context, q: String): List<Place> = withContext(Dispatchers.IO) {
+                  val out = mutableListOf<Place>()
+                  try { out.addAll(geocoder(ctx, q)) } catch (_: Exception) {}
+                  if (out.size < 3) {
+                      try {
+                          for (p in nominatim(q)) {
+                              // 跟已有結果距離 100 公尺內視為重複
+                              if (out.none { dist(it, p) < 100 }) out.add(p)
+                          }
+                      } catch (_: Exception) {}
+                  }
+                  out.take(10)
+              }
+
+              private fun geocoder(ctx: Context, q: String): List<Place> {
+                  if (!Geocoder.isPresent()) return emptyList()
+                  val g = Geocoder(ctx, Locale.TAIWAN)
+                  @Suppress("DEPRECATION")
+                  val list = g.getFromLocationName(q, 8) ?: return emptyList()
+                  return list.map { a ->
+                      val feature = a.featureName?.trim().orEmpty()
+                      // featureName 常常只是門牌號碼，這時改用搜尋字
+                      val name = if (feature.isEmpty() || feature.all { it.isDigit() || it == '-' || it == '號' }) q else feature
+                      Place(name, a.getAddressLine(0) ?: "", a.latitude, a.longitude)
+                  }
+              }
+
+              private fun nominatim(q: String): List<Place> {
+                  val url = URL(
+                      "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8" +
+                          "&accept-language=zh-TW,zh,en&q=" + URLEncoder.encode(q, "UTF-8")
+                  )
+                  val c = url.openConnection() as HttpURLConnection
+                  c.setRequestProperty("User-Agent", UA)
+                  c.connectTimeout = 10000
+                  c.readTimeout = 10000
+                  try {
+                      if (c.responseCode != 200) return emptyList()
+                      val arr = JSONArray(c.inputStream.bufferedReader().readText())
+                      val out = mutableListOf<Place>()
+                      for (i in 0 until arr.length()) {
+                          val o = arr.getJSONObject(i)
+                          val display = o.optString("display_name")
+                          val name = o.optString("name").ifBlank { display.substringBefore(",").trim() }.ifBlank { q }
+                          val lat = o.optString("lat").toDoubleOrNull() ?: continue
+                          val lng = o.optString("lon").toDoubleOrNull() ?: continue
+                          out.add(Place(name, display, lat, lng))
+                      }
+                      return out
+                  } finally {
+                      c.disconnect()
+                  }
+              }
+
+              private fun dist(a: Place, b: Place): Float {
+                  val r = FloatArray(1)
+                  Location.distanceBetween(a.lat, a.lng, b.lat, b.lng, r)
+                  return r[0]
+              }
+
+              /** 搜尋並讓使用者從結果清單挑一個 */
+              fun searchAndPick(act: AppCompatActivity, query: String, onPick: (Place) -> Unit) {
+                  val q = query.trim()
+                  if (q.isEmpty()) {
+                      Toast.makeText(act, "請輸入地名或座標", Toast.LENGTH_SHORT).show(); return
+                  }
+                  val waiting = AlertDialog.Builder(act)
+                      .setMessage("搜尋「$q」中…")
+                      .setNegativeButton("取消", null)
+                      .show()
+                  act.lifecycleScope.launch {
+                      val res = search(act.applicationContext, q)
+                      if (!waiting.isShowing) return@launch // 使用者按了取消
+                      waiting.dismiss()
+                      if (res.isEmpty()) {
+                          AlertDialog.Builder(act)
+                              .setTitle("找不到「$q」")
+                              .setMessage("可以試試：\n• 加上城市，例如「台南 赤崁樓」\n• 輸入完整地址\n• 確認手機有連上網路")
+                              .setPositiveButton("知道了", null)
+                              .show()
+                          return@launch
+                      }
+                      val labels = res.map { p ->
+                          if (p.address.isBlank() || p.address == p.name) p.name else "${p.name}\n${p.address}"
+                      }.toTypedArray()
+                      AlertDialog.Builder(act)
+                          .setTitle("「$q」的搜尋結果")
+                          .setItems(labels) { _, i -> onPick(res[i]) }
+                          .setNegativeButton("取消", null)
+                          .show()
+                  }
+              }
           }
           __PW_EOF__
           mkdir -p app/src/main/java/com/example/pikminwalker
@@ -2450,6 +3240,14 @@ jobs:
                       android:text="＋ 收藏目前位置" />
 
                   <Button
+                      android:id="@+id/btnSearchAdd"
+                      style="?attr/materialButtonOutlinedStyle"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginStart="8dp"
+                      android:text="🔍 搜尋" />
+
+                  <Button
                       android:id="@+id/btnNewFolder"
                       style="?attr/materialButtonOutlinedStyle"
                       android:layout_width="wrap_content"
@@ -2484,6 +3282,20 @@ jobs:
                   android:text="尚未開始模擬"
                   android:textColor="#222222"
                   android:textSize="13sp" />
+
+              <Button
+                  android:id="@+id/btnFlower"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="start|center_vertical"
+                  android:layout_marginStart="10dp"
+                  android:backgroundTint="#EC407A"
+                  android:elevation="6dp"
+                  android:paddingHorizontal="10dp"
+                  android:text="🌸\n計數"
+                  android:textColor="#FFFFFF"
+                  android:textSize="15sp"
+                  android:textStyle="bold" />
 
               <Button
                   android:id="@+id/btnFav"
@@ -2544,9 +3356,10 @@ jobs:
                           android:layout_width="0dp"
                           android:layout_height="wrap_content"
                           android:layout_weight="1"
-                          android:hint="輸入座標，例：22.9908, 120.2133"
-                          android:imeOptions="actionDone"
+                          android:hint="地名或座標，例：赤崁樓"
+                          android:imeOptions="actionSearch"
                           android:inputType="text"
+                          android:maxLines="1"
                           android:textSize="14sp" />
 
                       <Button
@@ -2554,7 +3367,7 @@ jobs:
                           style="?attr/materialButtonOutlinedStyle"
                           android:layout_width="wrap_content"
                           android:layout_height="wrap_content"
-                          android:text="放上地圖" />
+                          android:text="🔍 搜尋" />
 
                       <Button
                           android:id="@+id/btnLayer"
